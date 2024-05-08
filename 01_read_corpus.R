@@ -63,5 +63,5 @@ all_texts <- bind_rows(
 )
 
 # clean up: ####
-rm(all_paras, all_titles, all_lists, all_quotes, all_heads) # clear memory
 DBI::dbDisconnect(con) # Disconnect DB after data is read
+rm(all_paras, all_titles, all_lists, all_quotes, all_subheaders, con) # clear memory
