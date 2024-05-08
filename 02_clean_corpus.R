@@ -23,15 +23,16 @@ all_texts %>% filter(., str_detect(text_para, "<br>")) %>% count(para_type) # ..
 titles <- 
   all_texts %>% 
   filter(para_type == "title") %>%
-  group_by(id) %>%
-  summarise(text_para = str_c(text_para, collapse = " ")) %>% 
+  group_by(doc_key) %>%
+  summarise(text_para = str_c(text_para, collapse = " "),
+            id = min(id)) %>% 
   ungroup() %>% 
   left_join(.,
             all_texts %>% 
               filter(para_type == "title") %>% 
               select(-text_para) %>% 
               distinct(id, .keep_all = T), 
-            by = join_by(id)
+            by = join_by(id, doc_key)
   )
 
 
