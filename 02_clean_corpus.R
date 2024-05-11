@@ -1,7 +1,7 @@
 # Clean EC Corpus paragraphs
 
 # Input: tibble all_meta, tibble all_texts (both from 01_read_corpus.R)
-# Output: 
+# Output: data/all_texts.rds
 
 
 library(tidyverse)
