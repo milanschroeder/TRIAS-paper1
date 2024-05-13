@@ -12,6 +12,8 @@ library(tidyverse)
   # source("02_clean_corpus.R") # clean paragraphs for analysis
     # returns: all_texts.rds
     all_texts <- readr::read_rds("data/all_texts.rds") # to skip lengthy cleaning
+    
+  source("03_corpus_descriptives.Rmd") # descriptives on EC Corpus
 
 # digitality ####
 
@@ -26,7 +28,7 @@ library(tidyverse)
   # source("12_create_validation_sample.R") # validation sample creation
     # returns: validation_sample.csv
   
-  # validation done in https://manualcoding.pythonanywhere.com/
+  # validation done in https://manualcoding.pythonanywhere.com/ (plus some prior handcoding of clearly irrelevant (short) paragraphs)
     # returns: output_manual_coding.csv
     
   source("13_scaling_validation_results.Rmd") # validation sample results & cutoff selection
