@@ -9,8 +9,8 @@
 library(tidyverse) # Easily Install and Load the 'Tidyverse', CRAN v2.0.0 
 library(text2vec)
 library(ggwordcloud)
-# library(tidytext) # Text Mining using 'dplyr', 'ggplot2', and Other Tidy Tools, CRAN v0.4.1
 library(quanteda) # Quantitative Analysis of Textual Data, CRAN v3.3.1
+library(readxl)
 
 
 # TO DOs / Ideas
@@ -33,8 +33,8 @@ library(quanteda) # Quantitative Analysis of Textual Data, CRAN v3.3.1
 # I have parsed this for other purposes already, if you start from the raw file see:
 # https://gist.github.com/tjvananne/8b0e7df7dcad414e8e6d5bf3947439a9
 
-# glove.300 <- read_rds("C:/Users/chris/Downloads/glove.6B.300d.rds") # HP path
-glove.300 <- read_rds("C:/Users/rauh/Downloads/glove.6B.300d.rds") # ThinkPad path
+glove.300 <- read_rds("C:/Users/chris/Downloads/glove.6B.300d.rds") # HP path
+# glove.300 <- read_rds("C:/Users/rauh/Downloads/glove.6B.300d.rds") # ThinkPad path
 # glove.300 <- read_rds("C:/Users/rauh/Downloads/glove.6B.300d.rds") # WZB path
 
 
@@ -74,7 +74,7 @@ find_sim_wvs <- function(this_wv, all_wvs, top_n_res=40) {
 
 
 
-# Semantic similarity to DIGITAL terms ####
+# Semantic similarity to DIGITAL terms - radically simple dictionary ####
 # See respective markdown in TRIAS-Development for expanded reasoning
 
 # Seed tokens
@@ -101,7 +101,7 @@ dp_simils <-
 
 # Export token weights
 # Export semantic similarity dictionary ####
-write_rds(dp_simils, "./large_data/SemSimilWeights-Digitality.rds", compress = "gz")
+write_rds(dp_simils, "./large_data/SemSimilWeights-DigitalitySimple.rds", compress = "gz")
 
 
 # Visualize 
@@ -115,7 +115,154 @@ pl <-
        subtitle = "Based on Glove.6B.300d model; Top-200 words most similar to average word vector of the seed terms\nWords in red are seed terms, words in blue are \'learned\' from the pre-trained word vector model.")+
   theme_minimal()+
   theme(plot.background = element_rect(color = "white"))
-ggsave("./output/plots/SemanticallySimilarTerms_Digital.png", pl, width = 24, height = 12, units = "cm")
+ggsave("./output/plots/SemanticallySimilarTerms_Digital_Simple.png", pl, width = 24, height = 12, units = "cm")
+
+
+
+
+
+# Semantic similarity to DIGITAL terms - intersubjective dictionary ####
+
+# Seed tokens
+
+# Five human coders received a list of the top-1500 terms semantically close to the radically simplified dictionary
+# Each coder rated each terms as "Clearly and exclusively referring to the digital technology?" [0|1]
+
+files <- paste0("./data/DigitalTerms/", list.files("./data/DigitalTerms/"))
+
+ratings <- read_xlsx(files[1], sheet = 2) %>% rename(token = 1, coder1 = 2) %>% 
+  left_join(read_xlsx(files[2], sheet = 2) %>% rename(token = 1, coder2 = 2), by = "token") %>% 
+  left_join(read_xlsx(files[3], sheet = 2) %>% rename(token = 1, coder3 = 2), by = "token") %>% 
+  left_join(read_xlsx(files[4], sheet = 2) %>% rename(token = 1, coder4 = 2), by = "token") %>%
+  left_join(read_xlsx(files[5], sheet = 2) %>% rename(token = 1, coder5 = 2), by = "token") %>% 
+  mutate(codesum = rowSums(across(where(is.numeric)))) %>% 
+  arrange(desc(codesum))
+
+# Now we take those tokens for which a majority of coders (3/5) suggested that this was a relevant term ...
+dp_vocab2 <- ratings %>% 
+  filter(codesum >=3) %>% 
+  select(token) %>% 
+  pull()
+
+# ... and get back their average vector in the word embedding model  
+dp_vector2 <- glove.300 %>% 
+  select(all_of(dp_vocab2)) %>% # Probably needs a check whether all seeds exist in word vector
+  rowMeans() # Aggregation by mean
+
+# Extract cosine similarities to this average vector
+# (word weights that would semantically pull a text towards the seed)
+dp_simils2 <-
+  find_sim_wvs(dp_vector2, glove.300, top_n_res = 400000) %>% 
+  as.data.frame() %>% 
+  rename(sim.target = 1) %>% 
+  rownames_to_column("token") %>% 
+  mutate(seed = token %in% dp_vocab2) %>% 
+  filter(!(token %in% quanteda::stopwords("english"))) %>% 
+  arrange(desc(sim.target)) %>% 
+  mutate(rank.simil=row_number()) %>% 
+  relocate(rank.simil) # rank by similarity to seed vector
+
+
+# Export token weights
+# Export semantic similarity dictionary ####
+write_rds(dp_simils2, "./large_data/SemSimilWeights-DigitalityAdvanced.rds", compress = "gz")
+
+# Visualize 
+pl <-
+  ggplot(dp_simils2 %>% ungroup() %>% arrange(desc(sim.target)) %>% head(200), 
+         aes(label = token, size = sim.target, color = seed)) +
+  geom_text_wordcloud() +
+  scale_radius(range = c(1.5, 6), limits = c(0, NA)) +
+  scale_colour_manual(values = c("blue", "red"))+
+  labs(title = "Semantic similarity to vector of \'digital\' seed terms",
+       subtitle = "Based on Glove.6B.300d model; Top-200 words most similar to average word vector of the seed terms (based on human coders)\nWords in red are seed terms, words in blue are \'learned\' from the pre-trained word vector model.")+
+  theme_minimal()+
+  theme(plot.background = element_rect(color = "white"))
+ggsave("./output/plots/SemanticallySimilarTerms_Digital_Advanced.png", pl, width = 24, height = 12, units = "cm")
+
+
+
+# Semantic similarity to DIGITAL terms - intersubjective dictionary - frequency correction ####
+
+# Idea: Frequency in overall language could give us an idea of how 'specific' a word is ...
+# Those that are similar to 'digitality' but occur very frequently in general English should be less informative ...
+
+# I get frequencies from the sophistication package
+# https://github.com/kbenoit/sophistication/blob/master/data/data_matrix_google1grams.RData
+
+# Unfortunately this is much smaller than the GLOVE vocab ...
+# Raw data available here: 
+# http://commondatastorage.googleapis.com/books/syntactic-ngrams/index.html
+# http://storage.googleapis.com/books/ngrams/books/datasetsv2.html
+
+load("./large_data/data_matrix_google1grams.RData")
+ngram <- data_matrix_google1grams
+rm(data_matrix_google1grams)
+gc()
+
+# Average from the 1980-2010 decades
+ngram <- ngram %>% 
+  as.data.frame() %>% 
+  select(c(`1980`, `1990`, `2000`)) %>% 
+  mutate(abs.freq = `1980`+ `1990`+ `2000`) %>% 
+  mutate(ngram.perc = round(abs.freq / sum(abs.freq), 5)*100) %>% 
+  rownames_to_column(var = "token")
+
+# Add to simil data (advanced dict)
+# And combine 
+dp_simils3 <- dp_simils2 %>% 
+  left_join(ngram %>% select(c(token, ngram.perc)),
+            by = "token")  %>% 
+  filter(!is.na(ngram.perc)) %>% 
+  # mutate(sim.norm = scale(sim.target)[ ,1],
+  #                   perc.norm = scale(ngram.perc)[ ,1],
+  #                   weight = sim.norm - perc.norm) %>% 
+  # mutate(sim.norm = (sim.target - min(sim.target, na.rm = T))/(max(sim.target, na.rm = T) - min(sim.target, na.rm = T)),
+  #        perc.norm = (ngram.perc - min(ngram.perc, na.rm = T))/(max(ngram.perc, na.rm = T) - min(ngram.perc, na.rm = T)),
+  #        weight = sim.norm - perc.norm) %>% 
+  mutate(sim.norm = (sim.target - min(sim.target, na.rm = T))/(max(sim.target, na.rm = T) - min(sim.target, na.rm = T)),
+         perc.norm = (ngram.perc - min(ngram.perc, na.rm = T))/(max(ngram.perc, na.rm = T) - min(ngram.perc, na.rm = T)),
+         inv.perc.norm = 1-perc.norm,
+         weight = sim.norm*inv.perc.norm) %>%
+  arrange(desc(weight)) %>% 
+  mutate(rank.weight = row_number(),
+         rank.diff = rank.simil-rank.weight) 
+
+# Quick comparison - downwards correction (partially drastic) well visible
+ggplot(dp_simils3, aes(x = sim.target, y = weight)) + 
+  geom_point()
+
+# Pretty strong kurtosis, but stronger right tail - maybe good for discrimination
+ggplot(dp_simils3, aes(x = weight)) +
+  geom_density()
+
+# Look at the extreme examples: mainly generic words (almost stopwords) that we push downwards here - good!
+dp_simils3 %>% 
+  arrange(desc(rank.diff)) %>% 
+  select(token) %>% 
+  tail(25)
+
+# Clean up and export
+dp_simils3 <- dp_simils3 %>% 
+  select(rank.weight, token, weight, seed) %>% 
+  rename(sim.target = weight)
+
+write_rds(dp_simils3, "./large_data/SemSimilWeights-DigitalityAdvancedFreqCorrection.rds", compress = "gz")
+
+# Visualize 
+pl <-
+  ggplot(dp_simils3 %>% ungroup() %>% arrange(desc(sim.target)) %>% head(200), 
+         aes(label = token, size = sim.target, color = seed)) +
+  geom_text_wordcloud() +
+  scale_radius(range = c(1.5, 6), limits = c(0, NA)) + #ADAPT for this one!
+  scale_colour_manual(values = c("blue", "red"))+
+  labs(title = "Semantic similarity to vector of \'digital\' seed terms",
+       subtitle = "Based on Glove.6B.300d model; Top-200 words most similar to average word vector of the seed terms (based on human coders)\nWords in red are seed terms, words in blue are \'learned\' from the pre-trained word vector model.")+
+  theme_minimal()+
+  theme(plot.background = element_rect(color = "white"))
+ggsave("./output/plots/SemanticallySimilarTerms_Digital_Advanced_FreqCorrection.png", pl, width = 24, height = 12, units = "cm")
+
+
 
 
 

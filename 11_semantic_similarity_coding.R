@@ -16,7 +16,10 @@ tokens <- read_rds("./large_data/tokens.rds")
 # Semantic similarity weights ####
 # Extracted from pre-trained word vector model
 
-digital <- read_rds("./large_data/SemSimilWeights-Digitality.rds")
+digital1 <- read_rds("./large_data/SemSimilWeights-DigitalitySimple.rds")
+digital2 <- read_rds("./large_data/SemSimilWeights-DigitalityAdvanced.rds")
+digital3 <- read_rds("./large_data/SemSimilWeights-DigitalityAdvancedFreqCorrection.rds")
+
 economy <- read_rds("./large_data/SemSimilWeights-Economy.rds")
 security <- read_rds("./large_data/SemSimilWeights-Security.rds")
 librights <- read_rds("./large_data/SemSimilWeights-LibRights.rds")
@@ -27,9 +30,17 @@ confcoop <- read_rds("./large_data/SemSimilWeights-ConflictCooperation.rds")
 # Merge semantic similarity weights to tokens data ####
 
 df <- tokens %>% 
-  left_join(digital %>% 
+  left_join(digital1 %>% 
               select(token, sim.target) %>% 
-              rename(digital_simil = sim.target),
+              rename(digital_simil_simple = sim.target),
+            by = "token") %>% 
+  left_join(digital2 %>% 
+              select(token, sim.target) %>% 
+              rename(digital_simil_advanced = sim.target),
+            by = "token") %>% 
+  left_join(digital3 %>% 
+              select(token, sim.target) %>% 
+              rename(digital_simil_advanced_freq = sim.target),
             by = "token") %>% 
   left_join(economy %>% 
               select(token, sim.target) %>% 
