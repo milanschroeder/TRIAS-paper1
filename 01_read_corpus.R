@@ -1,4 +1,5 @@
 # Read EC Corpus Data for Analysis
+# Authors:: @milanschroeder; @ChRauh
 
 # Input: MariaDBconnection con (from 00_connectDB.R)
 # Output: tibble all_meta, tibble all_texts
@@ -34,6 +35,9 @@ combine_tables <- function(prefix = c("comread", "comspeech", "compress", "comst
 # read all metadata ####
 all_meta <- combine_tables()
 
+# Store local copy
+write_rds(all_meta %>% select(-c(date_time_cet, text_full)), "./data/all_meta.rds")
+
 
 
 # read all text elements ####
@@ -64,4 +68,6 @@ all_texts <- bind_rows(
 
 # clean up: ####
 DBI::dbDisconnect(con) # Disconnect DB after data is read
-rm(all_paras, all_titles, all_lists, all_quotes, all_subheaders, con) # clear memory
+rm(all_paras, all_titles, all_lists, all_quotes, all_subheaders, combine_tables, con) # clear memory
+gc()
+
