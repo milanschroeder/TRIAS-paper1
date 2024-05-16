@@ -1,6 +1,6 @@
 # Clean EC Corpus paragraphs
 
-# Input: tibble all_meta, tibble all_texts (both from 01_read_corpus.R)
+# Input: tibble all_texts (both from 01_read_corpus.R)
 # Output: data/all_texts.rds
 
 
@@ -98,23 +98,13 @@ all_texts %<>%
       
 # correct id after tidying up
       id = dplyr::row_number() - 1, # for easy compatability with python classifications
-      
-# fix doc_type variables:
-      doc_type = ifelse(is.na(doc_type), str_extract(doc_key, "(?<=/)[^_/]+(?=_)"), doc_type),
-      doc_type = case_when(
-        str_detect(doc_type, "(?i)country") ~ "countryreport",
-        str_starts(doc_type, "(?i)sp") ~ "speech",
-        str_starts(doc_type, "(?i)inf") ~ "infringement",
-        str_starts(doc_type, "(?i)read") ~ "readout",
-        str_detect(doc_type, "(?i)news|mex|ac") ~ "news",
-        str_detect(doc_type, "(?i)q") ~ "qa",
-        str_detect(doc_type, "wm|weekly") ~ "meetings",
-        str_detect(doc_type, "(?i)p|ip|pres") ~ "press",
-        doc_type == "Statement" ~ "statement",
-        T ~ doc_type
-      )
-    )
+      ) %>% 
   
+  # add doc_type
+  left_join(.,
+            all_meta %>% select(doc_key, doc_type), 
+            join_by(doc_key)
+            )
     
 # save/read ####
   readr::write_rds(all_texts, "data/all_texts.rds")

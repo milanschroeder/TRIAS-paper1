@@ -2,7 +2,7 @@
 # Authors:: @milanschroeder; @ChRauh
 
 # Input: MariaDBconnection con (from 00_connectDB.R)
-# Output: tibble all_meta, tibble all_texts
+# Output: tibbleall_meta, all_meta.rds, tibble all_texts
 
 # data reading function ####
 combine_tables <- function(prefix = c("comread", "comspeech", "compress", "comstate",    # main interest
