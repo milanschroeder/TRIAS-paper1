@@ -1,0 +1,224 @@
+# Country Mentions Descriptives
+
+all_meta (from 01_read_corpus.R)
+CountryMentions_NM-dict_ParagraphLevel.rds (from 20_country_mentions.R)
+
+```{r warning=F}
+library(tidyverse)
+library(magrittr)
+library(zoo)
+
+# country mentions aggregated by day:
+
+cm <- read_rds("large_data-paper1/CountryMentions_NM-dict_ParagraphLevel.rds") %>% 
+  left_join(., read_rds("data/all_meta.rds") %>% select(doc_key, date, doc_type), join_by(doc_key)) %>% 
+  filter(doc_type %in% c("Read-out", "Speech", "Press release", "Statement")) %>% 
+  group_by(date) %>% 
+  summarise(across(BI:WS, sum), # sum up per day
+            n_docs = length(unique(doc_key))) %>% # docs per day
+  rowwise() %>% mutate(cm_total = sum(c_across(BI:WS))) %>% # all country mentions per day
+  ungroup() %>% 
+  mutate(Year = year(date),
+         Month = zoo::as.yearmon(date),
+         across(BI:WS, ~ .x / n_docs, .names = "{col}_per_doc"),
+         across(BI:WS, ~ if_else(cm_total != 0, .x / cm_total * 100, 0), .names = "{col}_share"), # % of all country mentions
+         ) %>% 
+  select(date, Month, Year, n_docs, cm_total, everything())
+```
+
+
+plot all-time country mentions
+
+```{r}
+# prepare map:
+library(maps)
+library(countrycode)
+world_map <- map_data(map = "world")
+world_map$region <- maps::iso.alpha(world_map$region) # convert country name to ISO code
+```
+
+
+```{r}
+cm %>% 
+  pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+  group_by(Country) %>% 
+  summarise(`Country Mentions` = sum(`Country Mentions`)) %>% 
+  arrange(-`Country Mentions`) %>% 
+  
+  ggplot(., aes(map_id = Country)) +
+    geom_map(aes(fill = `Country Mentions`), map = world_map) +
+    expand_limits(x = world_map$long, y = world_map$lat) +
+    scale_fill_continuous(name = "", high = "red", low = "lightgrey") +
+    labs(title = "Which countries get mentioned in EC press releases?",
+         subtitle = "Count of paragraphs in EC communication 1985-2023, country hits by newsmap::data_dictionary_newsmap_en")+
+    coord_fixed()+
+    theme_void() +
+    theme(legend.position = c(0.1, 0.3))
+```
+xxxxxx
+
+# country mentions over time:
+```{r}
+cm %>% 
+  pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+   group_by(Country, Year) %>% 
+  summarise(`Country Mentions` = sum(`Country Mentions`)) %>% 
+  ungroup() %>% 
+  
+  ggplot(., aes(map_id = Country)) +
+    geom_map(aes(fill = `Country Mentions`), map = world_map) +
+    expand_limits(x = world_map$long, y = world_map$lat) +
+    scale_fill_continuous(name = "", high = "#004494", low = "lightgrey") +
+    labs(title = "Which countries get mentioned in EC communication?",
+         subtitle = "Count of mentions in EC communication 1985-2023, yearly country hits by newsmap::data_dictionary_newsmap_en") +
+    coord_fixed() +
+    facet_wrap(vars(Year), ncol = 5) +
+    theme_void() 
+
+```
+animation doesn't work yet... 
+```{r}
+# country_animation <- 
+#   cm %>% 
+#   pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+#    group_by(Country, Year) %>% 
+#   summarise(`Country Mentions` = sum(`Country Mentions`)) %>% 
+#   ungroup() %>% 
+#   
+#   ggplot(., aes(map_id = Country)) +
+#     geom_map(aes(fill = `Country Mentions`), map = world_map) +
+#     expand_limits(x = world_map$long, y = world_map$lat) +
+#     scale_fill_continuous(name = "", high = "#004494", low = "#ffd617") +
+#     labs(title = "Which countries get mentioned in EC press releases?",
+#          subtitle = "Count of paragraphs in EC press releases 1985-2023, country hits by newsmap::data_dictionary_newsmap_en") +
+#     coord_fixed() +
+#    # facet_wrap(vars(Year), ncol = 5) +
+#     theme_void() +
+#     theme(legend.position = c(0.1, 0.3)) +
+#    transition_time(Year) 
+#   
+#      animate(country_animation, rewind = T)
+```
+
+
+
+
+```{r}
+EU_at_time <- 
+  tibble::tibble(
+  memberstate = c("AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", 
+           "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB"),
+  eu_accession = as.Date(c("1995-01-01", "1958-01-01", "2007-01-01", "2013-07-01", 
+                             "2004-05-01", "2004-05-01", "1973-01-01", "2004-05-01", 
+                             "1995-01-01", "1958-01-01", "1958-01-01", "1981-01-01", 
+                             "2004-05-01", "1973-01-01", "1958-01-01", "2004-05-01", 
+                             "2004-05-01", "1958-01-01", "2004-05-01", "1958-01-01", 
+                             "2004-05-01", "1986-01-01", "2007-01-01", "2004-05-01", 
+                             "2004-05-01", "1986-01-01", "1995-01-01", "1973-01-01"))
+)
+
+EU_state_mentions <- 
+  cm %>% 
+  pivot_longer(all_of(
+      countrycode::codelist %>% filter(eu28 == "EU") %>% pull(iso2c)), 
+      names_to = "memberstate", 
+      values_to = "cms"
+      ) %>% 
+  right_join(., EU_at_time, join_by(memberstate)) %>% 
+  # was in EU at date?
+  mutate(eu = eu_accession <= date) %>% 
+  mutate(eu = ifelse(memberstate == "GB" & date >= as.Date("2020-02-01"), F, eu)) %>%
+  select(-c(BI:WS))
+
+EU_mentions <- EU_state_mentions %>% 
+  group_by(eu, date) %>% 
+  # count for EU members at date:
+  summarise(EU = sum(cms)) %>% 
+  ungroup() %>% 
+  filter(eu) %>% 
+  select(-eu)
+  
+
+cm_long <- cm %>% 
+  left_join(., EU_mentions %>% select(EU, date), join_by(date)) %>% 
+  mutate(
+    external = rowSums(cm %>% select(BI:WS), na.rm = T) - EU,
+    CN_TW_HK_MO = rowSums(cm %>% select(CN, TW, HK, MO), na.rm = T),
+    BRICS = rowSums(cm %>% select(BR, RU, IN, CN, ZA), na.rm = T),
+    BRICSplus = rowSums(cm %>% select(IR, AE, ET, EG), na.rm = T) + BRICS
+    ) %>% 
+  pivot_longer(c(EU, external, CN_TW_HK_MO, CN, US, RU, BRICSplus, BRICS), 
+               names_to = "Entity", 
+               values_to = "Mentions") %>% 
+  mutate(mentioned = Mentions > 0) %>% 
+  select(-c(BI:WS))
+```
+
+# all member states (probably as unnecessary as overloaded xD)
+
+```{r}
+EU_state_mentions %>% 
+  rename(`Country Mentions` = cms, member = eu) %>% 
+ggplot(aes(x = Year, y = `Country Mentions`, colour = memberstate, alpha = member)) +
+  geom_smooth(se = F) +
+  guides(color = guide_legend(ncol = 1)) +
+  theme_minimal()
+```
+
+
+
+plot countries/groups of interest
+
+```{r}
+cm_long %>% 
+  filter(Entity %in% c("EU", "external")) %>% 
+  group_by(Month, Entity) %>% 
+  summarise(Mentions = sum(Mentions)) %>% 
+  ggplot(aes(y = Mentions, color = Entity)) +
+  scale_color_manual(values = c("blue", "red")) +
+  geom_line(aes(x = Month)) +
+  geom_smooth(aes(x=Month), se = F) +
+  theme_minimal()
+```
+plot EU countries
+
+```{r}
+cm %>% 
+  filter(Entity %in% c("EU", "external")) %>% 
+  group_by(Month, Entity) %>% 
+  summarise(Mentions = sum(Mentions)) %>% 
+  ggplot(aes(y = Mentions, color = Entity)) +
+  scale_color_manual(values = c("blue", "red")) +
+  geom_line(aes(x = Month)) +
+  geom_smooth(aes(x=Month), se = F) +
+  theme_minimal()
+```
+
+
+
+```{r}
+cm_long %>% 
+  filter(Entity %in% c("US", "CN", "CN_TW_HK_MO")) %>% 
+  group_by(Month, Entity) %>% 
+  summarise(Mentions = sum(Mentions)) %>% 
+  ggplot(aes(y = Mentions, color = Entity)) +
+  scale_color_manual(values = c("US"="blue", CN="red", "CN_TW_HK_MO"="indianred")) +
+  geom_line(aes(x = Month)) +
+  geom_smooth(aes(x = Month), se = F) +
+  theme_minimal()
+```
+
+
+
+```{r}
+cm_long %>% 
+  filter(Entity %in% c("BRICS", "BRICSplus", "RU", "CN")) %>% 
+  group_by(Month, Entity) %>% 
+  summarise(Mentions = sum(Mentions)) %>% 
+  ggplot(aes(y = Mentions, color = Entity)) +
+  scale_color_manual(values = c("BRICS" = "peachpuff", "BRICSplus" = "orange", "RU" = "sienna", "CN"="red")) +
+  geom_line(aes(x = Month), data = cm_long %>% filter(Entity %in% c("CN", "RU"))) +
+  geom_smooth(aes(x = Month), se = F) +
+  theme_minimal()
+```
+

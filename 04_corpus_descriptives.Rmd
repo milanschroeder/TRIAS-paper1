@@ -1,0 +1,155 @@
+# Corpus Descriptives
+
+Input: all_texts.rds (from 02_cleancorpus.R), all_meta.rds (from 01_read_corpus)
+
+
+```{r}
+library(tidyverse)
+library(vtable)
+
+corpus <- 
+  left_join(read_rds("data/all_texts.rds") %>% select(-doc_type),
+            read_rds("data/all_meta.rds"), 
+            join_by(doc_key), 
+            suffix = c("_para", "_doc")
+  ) %>% 
+  mutate(Year = year(date),
+         included = doc_type %in% c("Speech", "Press release", "Statement", "Read-out"),
+         included_label = ifelse(included, "Included in analysis", "Excluded from analysis"),
+         # just to be sure:
+         n_chars_para = str_length(text_para)
+         ) %>% 
+  group_by(doc_key) %>% 
+  mutate(n_chars_doc = sum(n_chars_para, na.rm = T),
+         n_paras = n()) %>% 
+  ungroup() %>% 
+  filter(Year < 2024, # exclude current year
+         !is.na(doc_type)) 
+```
+
+### Summary Statistics:
+
+Also need sum-stats per group? 
+
+```{r}
+st(data = corpus %>% 
+     select(-c(included_label,lang_tag, lang_doc, location, date, title_short, title_long, doc_key, text_para, id)) %>% 
+     mutate(doc_type = factor(doc_type)), 
+   file = "output/tables/summary_stats_corpus", out = "kable", 
+   title = "Corpus: Summary Statistics", 
+   add.median = T)
+```
+
+
+# how much was postet over time?
+
+```{r}
+library(knitr)
+library(kableExtra)
+corpus %>% 
+  count(doc_type, sort = T) %>% 
+  kable() %>% 
+  kable_styling()
+```
+
+```{r}
+corpus %>% 
+  count(included, sort = T) %>% 
+  kable() %>% 
+  kable_styling()
+```
+
+
+
+```{r}
+corpus %>% 
+  count(included, doc_type, para_type, sort = T) %>% 
+  mutate(doc_type = fct_reorder(doc_type, included)) %>% 
+  ggplot() +
+  geom_col(aes(y = doc_type, x = n, fill = para_type, alpha = included), position = "dodge") +
+  theme_minimal()
+
+```
+
+
+```{r}
+corpus %>% 
+  count(included, doc_type, para_type, sort = T) %>% 
+  mutate(doc_type = fct_reorder(doc_type, included), share = n) %>% 
+  ggplot() +
+  geom_col(aes(y = doc_type, x = share, fill = para_type, alpha = included), position = "fill") +
+  theme_minimal()
+```
+
+### Time Trends:
+
+```{r}
+corpus %>% 
+  group_by(Year, included) %>% 
+  summarise(N_texts = n()) %>% 
+  ungroup() %>% 
+  ggplot(aes(x = Year, y = N_texts, color = included)) +
+  geom_point() +
+  geom_line() +
+  theme_minimal()
+```
+
+```{r}
+corpus %>% 
+  distinct(doc_key, .keep_all = T) %>% 
+  count(doc_type, Year, included_label) %>% 
+  ggplot(aes(x = Year, y = n, colour = doc_type)) +
+  geom_line() +
+  facet_wrap(vars(included_label), nrow = 2) +
+  theme_bw() + 
+  labs(title = "<b>EC communcative discourse over time</b>: Number of documents published",
+       y = "Count", 
+       colour = "Document Type") +
+  theme(plot.title = element_markdown())
+
+ggsave(filename = "output/plots/documents_over_time.png", 
+       width = 24, height = 27, units = "cm")
+```
+
+
+
+```{r}
+corpus %>% 
+  count(doc_type, Year, included_label) %>% 
+  ggplot(aes(x = Year, y = n, colour = doc_type)) +
+  geom_line() +
+  facet_wrap(vars(included_label), nrow = 2) +
+  theme_bw() + 
+  labs(title = "<b>EC communcative discourse over time</b>: Number of paragraphs",
+       y = "Count", 
+       colour = "Document Type") +
+  theme(plot.title = element_markdown())
+
+ggsave(filename = "output/plots/paras_over_time.png", 
+       width = 24, height = 27, units = "cm")
+```
+
+### Length of Paragraphs and Documents:
+
+Length of Documents:
+
+```{r}
+corpus %>% 
+  distinct(doc_key, .keep_all = T) %>% 
+  mutate(`Document Type` = fct_reorder(doc_type, included)) %>% 
+  ggplot(aes(x = n_paras, y = `Document Type`, fill = included_label)) +
+  geom_violin() +
+  coord_cartesian(xlim = c(0, 750)) +
+  theme_bw()
+```
+Length of Paragraphs:
+
+```{r}
+corpus %>% 
+  mutate(`Document Type` = fct_reorder(doc_type, included)) %>% 
+  ggplot(aes(x = n_chars_para, y = `Document Type`, fill = included_label)) +
+  geom_violin() +
+  coord_cartesian(xlim = c(0, 5000)) +
+  theme_bw()
+```
+
