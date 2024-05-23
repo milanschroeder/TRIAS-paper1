@@ -349,6 +349,108 @@ ggsave("./output/plots/CountryMentions/US&BRICS-prevalence_OverTime_Digitality.p
 
 
 
+# Balance of member and foreign states in EC communication ####
+# How inward or outward looking is the EC communication?
+
+
+# Time sensitive count of meber state mentions
+# How to dela with Belgium here (or maybe not: Brussels bias is probably stable over time)
+EU_at_time <- 
+  tibble::tibble(
+    memberstate = c("AT", "BE", "BG", "HR", "CY", "CZ", "DK", "EE", "FI", "FR", "DE", "GR", "HU", 
+                    "IE", "IT", "LV", "LT", "LU", "MT", "NL", "PL", "PT", "RO", "SK", "SI", "ES", "SE", "GB"),
+    eu_accession = as.Date(c("1995-01-01", "1958-01-01", "2007-01-01", "2013-07-01", 
+                             "2004-05-01", "2004-05-01", "1973-01-01", "2004-05-01", 
+                             "1995-01-01", "1958-01-01", "1958-01-01", "1981-01-01", 
+                             "2004-05-01", "1973-01-01", "1958-01-01", "2004-05-01", 
+                             "2004-05-01", "1958-01-01", "2004-05-01", "1958-01-01", 
+                             "2004-05-01", "1986-01-01", "2007-01-01", "2004-05-01", 
+                             "2004-05-01", "1986-01-01", "1995-01-01", "1973-01-01"))
+  )
+
+foreu <- 
+  docs %>% 
+  mutate(cm_total = rowSums(select(., c(BI:WS)))) %>% # Total count of country mentions in doc
+  pivot_longer(all_of(
+    countrycode::codelist %>% filter(eu28 == "EU") %>% pull(iso2c)), # Iso2 codes of EU 28 countries
+    names_to = "memberstate", 
+    values_to = "cms"
+  ) %>% 
+  right_join(., EU_at_time, join_by(memberstate)) %>% 
+  # was in EU at date?
+  mutate(eu = eu_accession <= date) %>% 
+  mutate(eu = ifelse(memberstate == "GB" & date >= as.Date("2020-02-01"), F, eu)) %>% # Brexit
+  select(-c(BI:WS)) %>% 
+  # Keep only contemporary EU countries (we're still on liong format)
+  filter(eu) %>% 
+  # Aggregate to doc level 
+  group_by(doc_key) %>% 
+  summarise(eu_countries = sum(cms),
+            all_countries = unique(cm_total)) %>% 
+  ungroup() %>% 
+  # Calculate relative presence
+  mutate(foreign_countries = all_countries - eu_countries,
+         foreu_balance = foreign_countries-eu_countries) %>% # Overweight of foreign over EU countries in document (absolute diff)
+  # Add doc_level classification of digitality and date
+  left_join(docs %>% select(doc_key, date, digital), by = "doc_key")
+
+
+# Comparative dataset
+
+df <- rbind(foreu %>% mutate(type = "All documents"),
+            foreu %>% filter(digital) %>% mutate(type = "Documents emphasizing digital affairs")) %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
+  filter(year >= 1997) %>% 
+  mutate(month = as.character(date) %>% str_remove("-[0-9]{2}$")) %>% 
+  select(-date) %>% 
+  relocate(month) %>% 
+  group_by(month, type) %>% 
+  summarise(foreu_balance = mean(foreu_balance))
+  
+
+
+# Plot 
+
+pl.balance <- 
+  ggplot(df, aes(x = month, y= foreu_balance, color = type, group = type, size = type))+
+  geom_hline(yintercept = 0, linetype = "dashed")+
+  geom_smooth(method = "loess", span = .1, se = F)+
+  scale_x_discrete(breaks = breaks, labels = labels)+
+  scale_color_manual(values = c("#0380b5", "#619933"))+
+  scale_linetype_manual(values = c("solid", "dotted"), guide = 'none')+
+  scale_size_manual(values = c(1, .5), guide = "none")+
+  labs(title = "Balance of foreign and EU countries mentioned in the public communication of the European Commission",
+       subtitle = paste0("Count of foreign countries minus count of contemporaneous EU member states, monthly averages"),
+       x = "",
+       y= "",
+       caption = "Monthly time-series smoothed with LOESS (span = .1)",
+       color = "Comparision set:")+
+  theme_bw()+
+  theme(legend.position = "top",
+        legend.justification='left',
+        legend.direction='horizontal',
+        legend.box.margin = margin(-5,0,-5,-5),
+        legend.text=element_text(size=11),
+        axis.text.x = element_text(angle = 90, vjust = .5),
+        strip.text = element_text(face = "bold"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 14))
+
+ggsave("./output/plots/CountryMentions/Foreign-EU-Balance.png", pl.balance, width = 28, height = 16, units = "cm")
+
+
+
+
+
+
+
+
+  
+
+
+
+
+
 
 
 
