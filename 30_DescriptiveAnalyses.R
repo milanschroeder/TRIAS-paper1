@@ -108,19 +108,54 @@ paras$text_para[paras$id == 22645] # Nice one!
 docs <- 
   paras %>%  
   group_by(doc_key) %>% 
+  # Different aggregations across variables
   summarise(doc_type = unique(doc_type), # Static vars (is there a smarter coding approach?)
             title = unique(title_long),
             date = unique(date),
             npara = n(), # Count of paragraphs in doc
-            digital = sum(digital), # Count of digital paragraphs
+            digitalpara = sum(digital), # Count of digital paragraphs
             across(economy_simil:conf_coop, mean, na.rm = T), # Semantic similarities averaged across paras (NA removal slows things down drastically)
             across(BI:WS, sum)) %>% # Count of country mentions per doc
   ungroup() %>% 
   arrange(date, doc_key)
 
 write_rds(docs, "./large_data/DocumentLevelData.rds", compress = "gz")
+# docs <- read_rds("./large_data/DocumentLevelData.rds")
 
 gc()
+
+
+# When does a document matter for digitality?
+# Taking initial choices here as the NLI classification is not likely to be finished in time and 
+# as the sem_simil classification on the para level creates false positives 
+
+docs$digitalshare <- docs$digitalpara/docs$npara
+hist(docs$digitalshare)
+sum(docs$digitalshare >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
+
+docs$digital <- docs$digitalshare >= .2
+
+docs %>% 
+  arrange(desc(digitalshare)) %>% 
+  select(npara, digitalshare, title) %>% 
+  head(15) # Strong bias to the single paragraph documents in the early period ... grr
+
+docs %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% 
+  group_by(year) %>% 
+  summarise(npara = mean(npara)) %>% 
+  ggplot(aes(x=year, y = npara, group = 1))+
+  geom_line() # From 1997 onewwards we ha ve a reasonable number of paras per doc only
+
+docs %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% 
+  filter(year >= 1997) %>% 
+  arrange(desc(digitalshare)) %>% 
+  select(npara, digitalshare, title) %>% 
+  head(15) # Looks very reasonable, stick with this one for now
+
+
+
 
 # Quick checks ####
 
@@ -134,6 +169,7 @@ gc()
 #   ggplot(aes(x=value, color = name))+
 #   geom_density()
  
+
 
 # Country mentions // "Geopolitics" ####
 
@@ -165,6 +201,8 @@ world_map$region <- maps::iso.alpha(world_map$region) # convert country name to 
 pl.map <- 
   cm %>% 
   mutate(BE = NA) %>% # Set Belgium to missing, to avoid the "Brussels" bias
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # No data before 1997, don't trust it
+  filter(year >= 1997) %>% 
   pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
   group_by(Country) %>% 
   summarise(`Country Mentions` = sum(`Country Mentions`)) %>% 
@@ -174,7 +212,7 @@ pl.map <-
   expand_limits(x = world_map$long, y = world_map$lat) +
   scale_fill_continuous(name = "", high = "#0380b5", low = "grey95", na.value="white") +
   labs(title = "Which countries does the European Commission mention most often in its public communication?",
-       subtitle = paste0("Count of literal country mentions in ", nrow(docs), " english-language press releases, speeches, and statements published by the Commission 1985-2023"),
+       subtitle = paste0("Count of literal country mentions in ",   nrow(docs %>% mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% filter(year >= 1997)), " english-language press releases, speeches, and statements published by the Commission 1997-2023"),
        caption = "Country mentions extracted along the Newsmap dictionaries (Watanabe 2018);\nBelgium deliberately set to missing.")+
   coord_fixed()+
   theme_void() +
@@ -186,6 +224,21 @@ pl.map <-
 ggsave("./output/plots/CountryMentions/WorldMapTotal.png", pl.map, width = 26, height = 15, units = "cm")
 
 
+# Top mentioned countries, for writing
+
+cm %>% 
+  mutate(BE = NA) %>% # Set Belgium to missing, to avoid the "Brussels" bias
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # No data before 1997, don't trust it
+  filter(year >= 1997) %>% 
+  pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+  group_by(Country) %>% 
+  summarise(`Country Mentions` = sum(`Country Mentions`)) %>% 
+  arrange(desc(`Country Mentions`)) %>% 
+  mutate(rank = row_number()) %>% 
+  head(50) %>% 
+  write_csv2("./output/plots/CountryMentions/Top50-MostMentionedCountries_1997-2023.csv")
+
+
 
 # Trends over time for selected countries ####
 # US + China plus the rest of BRICS
@@ -193,6 +246,8 @@ ggsave("./output/plots/CountryMentions/WorldMapTotal.png", pl.map, width = 26, h
 # Share of docs mentioning country by month
 df <- docs %>% 
   select(date, US, CN, BR, RU, IN, ZA) %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
+  filter(year >= 1997) %>% 
   mutate(month = as.character(date) %>% str_remove("-[0-9]{2}$")) %>% 
   select(-date) %>% 
   relocate(month) %>% 
@@ -205,7 +260,6 @@ df <- docs %>%
   mutate(country = countrycode(iso2, origin = "iso2c", "country.name")) %>% 
   mutate(country = factor(country, levels = c("United States", "China", "Brazil", "Russia", "India", "South Africa")))
   
-
 
 # Plotting parameters
 breaks <- 
@@ -237,11 +291,61 @@ pl.powers <-
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 14))
 
+pl.powers
+
 ggsave("./output/plots/CountryMentions/US&BRICS-prevalence_OverTime.png", pl.powers, width = 24, height = 24, units = "cm")
 
-# Distinguish Digital policy documents here already ?
 
+# Add digitality to the picture
 
+df2 <- docs %>% 
+  filter(digital) %>% # !
+  select(date, US, CN, BR, RU, IN, ZA) %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
+  filter(year >= 1997) %>% 
+  mutate(month = as.character(date) %>% str_remove("-[0-9]{2}$")) %>% 
+  select(-date) %>% 
+  relocate(month) %>% 
+  mutate_at(c(2:7), as.logical) %>% # Mere presence instead of count of country mentions
+  group_by(month) %>% 
+  summarise_at(vars(US:ZA), mean, na.rm = T) %>% # Share of docs that mention the country
+  mutate_at(vars(US:ZA), round, 2) %>% 
+  ungroup() %>% 
+  pivot_longer(cols = 2:7, names_to = "iso2", values_to = "share") %>% 
+  mutate(country = countrycode(iso2, origin = "iso2c", "country.name")) %>% 
+  mutate(country = factor(country, levels = c("United States", "China", "Brazil", "Russia", "India", "South Africa")))
+
+df <- rbind(df %>%  mutate(type = "All documents"),
+            df2 %>% mutate(type = "Documents emphasizing digital affairs"))
+
+pl.powers <- 
+  ggplot(df, aes(x = month, y= share, color = type, group = type, size = type))+
+  # geom_line()+
+  geom_smooth(method = "loess", span = .1, se = F)+
+  scale_x_discrete(breaks = breaks, labels = labels)+
+  scale_color_manual(values = c("#0380b5", "#619933"))+
+  scale_linetype_manual(values = c("solid", "dotted"), guide = 'none')+
+  scale_size_manual(values = c(1, .5), guide = "none")+
+  facet_wrap(.~country, ncol = 2)+
+  scale_y_continuous(labels =scales::percent)+
+  labs(title = "Major world power mentions in the public communication of the European Commission",
+       subtitle = paste0("Monthly share of Commission press releases, speeches, and statements that mention the respective country at least once"),
+       x = "",
+       y= "",
+       caption = "Monthly time-series smoothed with LOESS (span = .1)",
+       color = "Comparision set:")+
+  theme_bw()+
+  theme(legend.position = "top",
+        legend.justification='left',
+        legend.direction='horizontal',
+        legend.box.margin = margin(-5,0,-5,-5),
+        legend.text=element_text(size=11),
+        axis.text.x = element_text(angle = 90, vjust = .5),
+        strip.text = element_text(face = "bold"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 14))
+
+ggsave("./output/plots/CountryMentions/US&BRICS-prevalence_OverTime_Digitality.png", pl.powers, width = 24, height = 24, units = "cm")
 
 
 
