@@ -441,9 +441,55 @@ ggsave("./output/plots/CountryMentions/Foreign-EU-Balance.png", pl.balance, widt
 
 
 
+# Emphasis of economic, liberal rights, or security concerns ###
 
+concerns <- docs %>% 
+  select(date, digital, contains("_simil")) %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
+  filter(year >= 1997) %>% 
+  mutate(month = as.character(date) %>% str_remove("-[0-9]{2}$")) %>% 
+  select(-c(date, year)) %>% 
+  relocate(month) %>% 
+  pivot_longer(contains("_simil"), names_to = "concern", values_to = "sem_simil")
+# %>% 
+#   group_by(month, digital, concern) %>%
+#   summarise(sem_smil = mean(sem_smil))
 
+df <-rbind(concerns %>% group_by(month, concern) %>% summarise(sem_simil = mean(sem_simil)) %>% ungroup() %>% mutate(type = "All documents"),
+           concerns %>% filter(digital) %>% group_by(month, concern) %>% summarise(sem_simil = mean(sem_simil)) %>% ungroup() %>% mutate(type = "Documents emphasizing digital affairs"))
 
+df$concern[str_detect(df$concern, "economy")] <- "Economy language"
+df$concern[str_detect(df$concern, "librights")] <- "Liberal rights language"
+df$concern[str_detect(df$concern, "security")] <- "Security language"
+table(df$concern)
+df$concern <- factor(df$concern, levels = c("Economy language", "Liberal rights language", "Security language"))
+
+pl.concerns <- 
+  ggplot(df, aes(x = month, y= sem_simil, color = type, group = type, size = type))+
+  geom_smooth(method = "loess", span = .1, se = F)+
+  scale_x_discrete(breaks = breaks, labels = labels)+
+  scale_color_manual(values = c("#0380b5", "#619933"))+
+  scale_linetype_manual(values = c("solid", "dotted"), guide = 'none')+
+  scale_size_manual(values = c(1, .5), guide = "none")+
+  facet_wrap(.~concern, ncol = 1, scales = "free_y") +
+  labs(title = "Relative emphasis of diofferent concerns in the public communication of the European Commission",
+       subtitle = paste0("Based on the semantic similarity to seed word dictionaries on the respective concern, monthly averages"),
+       x = "",
+       y= "",
+       caption = "Monthly time-series smoothed with LOESS (span = .1)",
+       color = "Comparision set:")+
+  theme_bw()+
+  theme(legend.position = "top",
+        legend.justification='left',
+        legend.direction='horizontal',
+        legend.box.margin = margin(-5,0,-5,-5),
+        legend.text=element_text(size=11),
+        axis.text.x = element_text(angle = 90, vjust = .5),
+        strip.text = element_text(face = "bold"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 14))
+
+ggsave("./output/plots/RelativeEmphasis_Conerns.png", pl.concerns, width = 28, height = 24, units = "cm")
 
   
 
