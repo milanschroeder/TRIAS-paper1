@@ -467,7 +467,8 @@ rbind(
   
   group_by(date) %>% 
   summarize(across(c(US, CN), ~ sum(.x, na.rm = T) / n(), .names = "{col}")) %>% 
-  pivot_longer(cols = c(US, CN), names_to = "daily", values_to = "share_day") %>% 
+  pivot_longer(cols = c(US, CN), names_to = "iso2", values_to = "share") %>% 
+  mutate(type = "daily") %>% 
   ungroup(), 
   
   
@@ -481,7 +482,10 @@ rbind(
     
   group_by(month) %>% 
   summarize(across(c(US, CN), ~ sum(.x, na.rm = T) / n(), .names = "{col}")) %>%
-  pivot_longer(cols = c(US, CN), names_to = "monthly", values_to = "share_month") %>% 
+  pivot_longer(cols = c(US, CN), names_to = "iso2", values_to = "share") %>% 
+  mutate(type = "monthly",
+         date = as.Date(paste0(month, "-15"))) %>% 
+  select(-month) %>% 
   ungroup(),
   
   dp_docs %>% 
@@ -494,27 +498,94 @@ rbind(
     
   group_by(year) %>% 
   summarize(across(c(US, CN), ~ sum(.x, na.rm = T) / n(), .names = "{col}")) %>% 
-  pivot_longer(cols = c(US, CN), names_to = "yearly", values_to = "share_year") %>% 
+  pivot_longer(cols = c(US, CN), names_to = "iso2", values_to = "share") %>% 
+  mutate(type = "yearly",
+         date = as_date(paste0(year, "-07-01"))) %>% 
+  select(-year) %>% 
   ungroup()
-  
-  )
-  
-  
-  mutate(country = casecountrycode(iso2, origin = "iso2c", "country.name")) %>% 
+  ) %>% 
+  mutate(country = countrycode(iso2, origin = "iso2c", "country.name")) %>% 
   mutate(country = factor(country, levels = c("United States", "China"))) %>% 
   mutate(
     period = case_when(
-      as.Date(paste0(month, '-01')) >= as_date("2018-12-01") ~ "Huawei",
-      as.Date(paste0(month, '-01')) >= as_date("2018-03-01") ~ "Cambridge Analytica",
-      as.Date(paste0(month, '-01')) >= as_date("2015-10-01") ~ "Digital Silk Road",
-      as.Date(paste0(month, '-01')) >= as_date("2013-06-01") ~ "Snowden",
-      as.Date(paste0(month, '-01')) >= as_date("2012-12-01") ~ "WCIT",
-      as.Date(paste0(month, '-01')) >= as_date("2010-07-01") ~ "Stuxnet",
-      as.Date(paste0(month, '-01')) >= as_date("2005-11-01") ~ "WSIS 2005",
-      as.Date(paste0(month, '-01')) >= as_date("2003-12-01") ~ "WSIS 2003",
+      date >= as_date("2018-12-01") ~ "Huawei",
+      date >= as_date("2018-03-01") ~ "Cambridge Analytica",
+      date >= as_date("2015-10-01") ~ "Digital Silk Road",
+      date >= as_date("2013-06-01") ~ "Snowden",
+      date >= as_date("2012-12-01") ~ "WCIT",
+      date >= as_date("2010-07-01") ~ "Stuxnet",
+      date >= as_date("2005-11-01") ~ "WSIS 2005",
+      date >= as_date("2003-12-01") ~ "WSIS 2003",
       TRUE ~ "before"
-    ) %>% as.factor()
+    ) %>% as.factor(),
+    month = as.character(date) %>% str_remove("-[0-9]{2}$") 
   )
+
+df_dp %>%
+  filter(type == "yearly") %>% 
+  ggplot() +
+  geom_point(aes(x = date, y = share, colour = country))
+  
+# breaks <- 
+#   df_dp %>% 
+#   select(month) %>% 
+#   unique() %>% 
+#   filter(str_detect(month, "-01")) %>%
+#   pull()
+# labels <- breaks %>% str_remove_all("-01") 
+
+breaks <- 
+  df %>% 
+  select(month) %>% 
+  unique() %>% 
+  filter(str_detect(month, "-01")) %>%
+#  mutate(month = as.Date(paste0(month, "-01"))) %>% 
+  pull()
+labels <- breaks %>% str_remove_all("-01") 
+
+
+ggplot() +
+  # geom_point(aes(x = month, y = share, colour = country),
+  #           df_dp %>% filter(type == "yearly")) +
+  geom_point(aes(x = month, y = share, colour = country),
+            df_dp %>% filter(type == "monthly")) +
+    geom_smooth(aes(x = month, y = share, group = period), colour = "black", method = "lm", se = T, 
+              data = df_dp %>% filter(type == "monthly")) +
+  scale_color_manual(values = c("United States" = "#0380b5", "China" = "red")) +
+  facet_wrap(. ~country, nrow = 2) +
+#  scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
+   scale_x_discrete(breaks = breaks, labels = labels) +
+  scale_y_continuous(labels =scales::percent)+
+  labs(title = "Share of digital policy documents that mention major world power in the public communication of the European Commission",
+       subtitle = paste0("Monthly share of digital related Commission press releases, speeches, and statements that mention the respective country at least once"),
+       x = "",
+       y= "",
+       caption = "Monthly time-series with linear smoothing")+
+  theme_bw()+
+  theme(legend.position = "none",
+        #text=element_text(family = "Dahrendorf"),
+        axis.text.x = element_text(angle = 90, vjust = .5),
+        strip.text = element_text(face = "bold"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 10),
+        plot.subtitle = element_text(size = 9)) +
+  coord_cartesian(ylim = c(0, 1)) +
+  geom_vline(xintercept = "2003-12", linetype = "dotted") +
+  geom_vline(xintercept = "2005-11", linetype = "dotted") +
+  geom_vline(xintercept = "2010-07", linetype = "dotted") +
+  geom_vline(xintercept = "2012-12", linetype = "dotted") +
+  geom_vline(xintercept = "2013-06", linetype = "dotted") +
+  geom_vline(xintercept = "2015-10", linetype = "dotted") +
+  geom_vline(xintercept = "2018-03", linetype = "dotted") +
+  geom_vline(xintercept = "2018-12", linetype = "dotted")
+  # annotate("text", 
+  #          x = c("2003-12", "2005-11", "2010-07", "2012-12", "2013-06", "2015-10", "2018-03", "2018-12"),
+  #          y = .95,
+  #          label = c("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
+  #          angle = 270, size = 2.3, hjust = 0) 
+
+  ggsave("./output/plots/CountryMentions/US&CN-prevalence_OverTime-digital.png", width = 24, height = 24, units = "cm")
+  
 
 # Trends over time for selected countries ####
 # US + China plus the rest of BRICS
@@ -635,7 +706,7 @@ pl.powers <-
   scale_color_manual(values = c("#0380b5", "#619933"))+
   scale_linetype_manual(values = c("solid", "dotted"), guide = 'none')+
   scale_size_manual(values = c(1, .5), guide = "none")+
-  facet_wrap(.~country, ncol = 2)+
+  facet_wrap(.~country, nrow = 2)+
   scale_y_continuous(labels =scales::percent)+
   labs(title = "Major world power mentions in the public communication of the European Commission",
        subtitle = paste0("Monthly share of Commission press releases, speeches, and statements that mention the respective country at least once"),
@@ -656,10 +727,14 @@ pl.powers <-
   
 pl.powers 
 
+ggsave("./output/plots/CountryMentions/US&CN-prevalence_OverTime_Digitality.png", pl.powers, width = 24, height = 24, units = "cm")
+
+
 # to add BRICS:
 # +  geom_smooth(df %>% filter(country == "BRICS"), aes(x = month, y= share, color = type, group = type, size = type), 
 #                method = "loess", span = span, se = F) +
-  
+
+
 
 # with zs:
 ggsave("./output/plots/CountryMentions/US&BRICS-prevalence_OverTime_DigitalityZS.png", pl.powers, width = 24, height = 24, units = "cm")
