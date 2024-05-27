@@ -403,6 +403,14 @@ cm <- docs %>%
   )%>% 
   select(date, Month, Year, n_docs, cm_total, everything())
 
+# total counts (for writing)
+
+country_freqs <- cm %>% 
+  pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+  group_by(Country) %>% 
+  summarise(`Country Mentions` = sum(`Country Mentions`)) %>% 
+  arrange(-`Country Mentions`)
+
 
 cm_digital <- docs %>% 
   
@@ -421,6 +429,17 @@ cm_digital <- docs %>%
   )%>% 
   select(date, Month, Year, n_docs, cm_total, everything()) %>% 
   right_join(., cm %>% select(date), by = "date") # ensure all dates are present -> same structure as cm 
+
+
+# total counts (for writing)
+
+sum(cm_digital$n_docs, na.rm = T)
+
+country_freqs_digital <- cm_digital %>% 
+  pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+  group_by(Country) %>% 
+  summarise(`Country Mentions` = sum(`Country Mentions`, na.rm = T)) %>% 
+  arrange(-`Country Mentions`)
 
 
 # differences between digital and non-digital country mentions:
@@ -538,6 +557,7 @@ cm %>%
   mutate(rank = row_number()) %>% 
   head(50) %>% 
   write_csv2("./output/plots/CountryMentions/Top50-MostMentionedCountries_1997-2023.csv")
+
 
 # Share of digital docs mentioning country by month:
 
@@ -908,6 +928,21 @@ pl.balance <-
        y= "",
        caption = "Monthly time-series smoothed with LOESS (span = .1)",
        color = "Comparision set:")+
+  geom_vline(xintercept = as.Date("2003-12-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2005-11-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2010-07-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2012-12-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2013-06-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2015-10-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2018-03-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2018-12-01") %>% as.character() %>% str_remove("-[0-9]{2}$"), linetype = "dotted") +
+  annotate("text", 
+           x = c("2003-11", "2005-10", "2010-06", "2012-11", 
+                 "2013-05", "2015-09", "2018-02", "2018-11"),
+           y = 3,
+           label = c("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
+           angle = 270, size = 2.3, hjust = 0
+  )+
   theme_bw()+
   theme(legend.position = "top",
         legend.justification='left',
