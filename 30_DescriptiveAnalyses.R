@@ -51,7 +51,7 @@ gc() # Free memory
 # Looking through these examples: Many false positives - we need more precision ;)
 
 # Econ simil
-paras %>% 
+paras %>% distinct(text_para, .keep_all = T) %>% 
   filter(digital) %>% 
   filter(wordcount > 10) %>% 
   arrange(desc(economy_simil)) %>% 
@@ -59,7 +59,7 @@ paras %>%
   head(15)
 paras$text_para[paras$id == 331845] 
 
-paras %>% 
+paras %>% distinct(text_para, .keep_all = T) %>%
   filter(!digital) %>% 
   filter(wordcount > 10) %>% 
   arrange(desc(economy_simil)) %>% 
@@ -68,7 +68,7 @@ paras %>%
 paras$text_para[paras$id == 594929] 
 
 # Security simil
-paras %>% 
+paras %>% distinct(text_para, .keep_all = T) %>%
   filter(digital) %>% 
   filter(wordcount > 10) %>% 
   arrange(desc(security_simil)) %>% 
@@ -76,7 +76,7 @@ paras %>%
   head(15)
 paras$text_para[paras$id == 1923360] 
 
-paras %>% 
+paras %>% distinct(text_para, .keep_all = T) %>%
   filter(!digital) %>% 
   filter(wordcount > 10) %>% 
   arrange(desc(security_simil)) %>% 
@@ -85,7 +85,7 @@ paras %>%
 paras$text_para[paras$id == 222898] 
 
 # Liberal rights
-paras %>% 
+paras %>% distinct(text_para, .keep_all = T) %>%
   filter(digital) %>% 
   filter(wordcount > 10) %>% 
   arrange(desc(librights_simil)) %>% 
@@ -93,7 +93,7 @@ paras %>%
   head(15)
 paras$text_para[paras$id == 173325] 
 
-paras %>% 
+paras %>% distinct(text_para, .keep_all = T) %>%
   filter(!digital) %>% 
   filter(wordcount > 10) %>% 
   arrange(desc(librights_simil)) %>% 
@@ -119,36 +119,62 @@ docs <-
   ungroup() %>% 
   arrange(date, doc_key)
 
-write_rds(docs, "./large_data/DocumentLevelData.rds", compress = "gz")
-# docs <- read_rds("./large_data/DocumentLevelData.rds")
+### save for later:
+# write_rds(docs, "./large_data/DocumentLevelData.rds", compress = "gz")
+# write_rds(paras, "./large_data/ParagraphLevelData.rds", compress = "gz")
+
+
+# join ZS Classifications and aggregations from 31_match_geopolitics.R:
+
+docs <- read_rds("./large_data/DocumentLevelData.rds")
+docs <- left_join(docs,
+                  read_rds("./data/DocLevelData_zs.rds") %>% 
+                    select(-any_of(names(docs)[names(docs) %in% names(analysis_data_doclevel)]), doc_key),
+                  by = "doc_key"
+                  )
+
+paras <- read_rds("./large_data/ParagraphLevelData.rds")
+paras <- left_join(paras,
+                   read_rds("./data/ParaLevelData_zs.rds") %>% 
+                     select(-any_of(names(paras)[names(paras) %in% names(read_rds("data/ParaLevelData_zs.rds"))]), id),
+                   by = "id"
+                   )
 
 gc()
-
 
 # When does a document matter for digitality?
 # Taking initial choices here as the NLI classification is not likely to be finished in time and 
 # as the sem_simil classification on the para level creates false positives 
 
 docs$digitalshare <- docs$digitalpara/docs$npara
-hist(docs$digitalshare)
+hist(docs$digitalshare) # sem_simil
+hist(docs$share_digital_para) # max_subtopic
+
+sum(docs$digitalshare >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
 sum(docs$digitalshare >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
 
 docs$digital <- docs$digitalshare >= .2
 
-docs %>% 
+docs %>%
   arrange(desc(digitalshare)) %>% 
   select(npara, digitalshare, title) %>% 
   head(15) # Strong bias to the single paragraph documents in the early period ... grr
 
 docs %>% 
-  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% 
+  mutate(
+    year = lubridate::year(date)
+    # year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()
+    ) %>% 
   group_by(year) %>% 
   summarise(npara = mean(npara)) %>% 
   ggplot(aes(x=year, y = npara, group = 1))+
   geom_line() # From 1997 onewwards we ha ve a reasonable number of paras per doc only
 
 docs %>% 
-  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% 
+  mutate(
+    year = lubridate::year(date)
+    # year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()
+  ) %>% 
   filter(year >= 1997) %>% 
   arrange(desc(digitalshare)) %>% 
   select(npara, digitalshare, title) %>% 
@@ -189,6 +215,31 @@ cm <- docs %>%
   select(date, Month, Year, n_docs, cm_total, everything())
 
 
+cm_digital <- docs %>% 
+  
+  # only articles with some digitality:
+  filter(digitalpara > 0) %>% 
+  
+  group_by(date) %>% 
+  summarise(across(BI:WS, sum), # sum up per day
+            n_docs = length(unique(doc_key))) %>% # docs per day
+  rowwise() %>% mutate(cm_total = sum(c_across(BI:WS))) %>% # all country mentions per day
+  ungroup() %>% 
+  mutate(Year = year(date),
+         Month = zoo::as.yearmon(date),
+         across(BI:WS, ~ .x / n_docs, .names = "{col}_per_doc"),
+         across(BI:WS, ~ if_else(cm_total != 0, .x / cm_total * 100, 0), .names = "{col}_share"), # % of all country mentions
+  )%>% 
+  select(date, Month, Year, n_docs, cm_total, everything()) %>% 
+  right_join(., cm %>% select(date), by = "date") # ensure all dates are present -> same structure as cm 
+
+
+# differences between digital and non-digital country mentions:
+cm_diff <- cbind(
+  cm %>% select(date:cm_total),
+  cm_digital %>% select(BI:WS) - cm %>% select(BI:WS)
+)
+
 # Which countries does the Commission talk about ? - Maps
 
 # Prepare map template
@@ -196,6 +247,7 @@ library(maps)
 library(countrycode)
 world_map <- map_data(map = "world")
 world_map$region <- maps::iso.alpha(world_map$region) # convert country name to ISO code
+
 
 # Map all country mentions
 pl.map <- 
@@ -220,8 +272,68 @@ pl.map <-
         plot.margin = unit(c(.3,.3,.3,.3), "cm"),
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 14))
-# pl.map
+pl.map
 ggsave("./output/plots/CountryMentions/WorldMapTotal.png", pl.map, width = 26, height = 15, units = "cm")
+
+
+
+
+
+# Map digital country mentions
+pl.map_digital <- 
+  cm_digital %>% 
+  mutate(BE = NA) %>% # Set Belgium to missing, to avoid the "Brussels" bias
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # No data before 1997, don't trust it
+  filter(year >= 1997) %>% 
+  pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+  group_by(Country) %>% 
+  summarise(`Country Mentions` = sum(`Country Mentions`, na.rm = T)) %>% 
+  arrange(-`Country Mentions`) %>% 
+  ggplot(., aes(map_id = Country)) +
+  geom_map(aes(fill = `Country Mentions`), map = world_map) +
+  expand_limits(x = world_map$long, y = world_map$lat) +
+  scale_fill_continuous(name = "", high = "#0380b5", low = "grey95", na.value="white") +
+  labs(title = "Which countries does the European Commission mention with digital topics most often in its public communication?",
+       subtitle = paste0("Count of literal country mentions in ",   nrow(docs %>% mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% filter(year >= 1997)), " english-language press releases, speeches, and statements that relate to digital topics published by the Commission 1997-2023"),
+       caption = "Country mentions extracted along the Newsmap dictionaries (Watanabe 2018);\nBelgium deliberately set to missing.")+
+  coord_fixed()+
+  theme_void() +
+  theme(legend.position = c(0.1, 0.3),
+        plot.margin = unit(c(.3,.3,.3,.3), "cm"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 14))
+pl.map_digital
+ggsave("./output/plots/CountryMentions/WorldMapDigital.png", width = 26, height = 15, units = "cm")
+
+
+
+# Map digital country mentions - general country mentions
+pl.map_diff <- 
+  cm_diff %>% 
+  mutate(BE = NA) %>% # Set Belgium to missing, to avoid the "Brussels" bias
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # No data before 1997, don't trust it
+  filter(year >= 1997) %>% 
+  pivot_longer(cols = BI:WS, names_to = "Country", values_to = "Country Mentions") %>% 
+  group_by(Country) %>% 
+  summarise(`Country Mentions` = sum(`Country Mentions`, na.rm = T)) %>% 
+  arrange(-`Country Mentions`) %>% 
+  ggplot(., aes(map_id = Country)) +
+  geom_map(aes(fill = `Country Mentions`), map = world_map) +
+  expand_limits(x = world_map$long, y = world_map$lat) +
+  scale_fill_continuous(name = "", high = "red", low = "blue", na.value="white") +
+  labs(title = "Which countries does the European Commission mention more often in its digital-related public communication?",
+       subtitle = "Difference of literal country mentions in english-language press releases, speeches, and statements published by the Commission 1997-2023 that relate to digital topics and all country mentions",
+       caption = "Country mentions extracted along the Newsmap dictionaries (Watanabe 2018);\nBelgium deliberately set to missing.")+
+  coord_fixed()+
+  theme_void() +
+  theme(legend.position = c(0.1, 0.3),
+        plot.margin = unit(c(.3,.3,.3,.3), "cm"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 14))
+pl.map_diff
+ggsave("./output/plots/CountryMentions/WorldMapDigitalDiff.png", pl.map, width = 26, height = 15, units = "cm")
+
+
 
 
 # Top mentioned countries, for writing
@@ -299,7 +411,7 @@ ggsave("./output/plots/CountryMentions/US&BRICS-prevalence_OverTime.png", pl.pow
 # Add digitality to the picture
 
 df2 <- docs %>% 
-  filter(digital) %>% # !
+  filter(digitalpara > 1) %>% # !
   select(date, US, CN, BR, RU, IN, ZA) %>% 
   mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
   filter(year >= 1997) %>% 
