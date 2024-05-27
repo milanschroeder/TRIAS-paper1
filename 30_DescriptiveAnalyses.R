@@ -117,21 +117,6 @@ docs <-
             across(economy_simil:conf_coop, mean, na.rm = T), # Semantic similarities averaged across paras (NA removal slows things down drastically)
             across(BI:WS, sum)) %>% # Count of country mentions per doc
   ungroup() %>% 
-  arrange(date, doc_key) 
-
-### save for later:
-# write_rds(docs, "./large_data/DocumentLevelData.rds", compress = "gz")
-# write_rds(paras, "./large_data/ParagraphLevelData.rds", compress = "gz")
-
-
-# join ZS Classifications and aggregations from 31_match_geopolitics.R:
-
-docs <- read_rds("./large_data/DocumentLevelData.rds")
-docs <- left_join(docs,
-                  read_rds("./data/DocLevelData_zs.rds") %>% 
-                    select(-any_of(names(docs)[names(docs) %in% names(analysis_data_doclevel)]), doc_key),
-                  by = "doc_key"
-                  ) %>% 
   mutate(
     period = case_when(
       date >= as_date("2018-12-01") ~ "Huawei",
@@ -144,19 +129,47 @@ docs <- left_join(docs,
       date >= as_date("2003-12-01") ~ "WSIS 2003",
       TRUE ~ "before"
     ) %>% as.factor()
-  )
+  ) %>% 
+  arrange(date, doc_key) 
 
-paras <- read_rds("./large_data/ParagraphLevelData.rds")
-paras <- left_join(paras,
-                   read_rds("./data/ParaLevelData_zs.rds") %>% 
-                     select(-any_of(names(paras)[names(paras) %in% names(read_rds("data/ParaLevelData_zs.rds"))]), id),
-                   by = "id"
-                   )
+### save for later:
+# write_rds(docs, "./large_data/DocumentLevelData.rds", compress = "gz")
+# write_rds(paras, "./large_data/ParagraphLevelData.rds", compress = "gz")
 
 
-dp_docs <- 
-  docs %>% 
-  filter(digitalsimil) # for sem_simil
+# join ZS Classifications and aggregations from 31_match_geopolitics.R:
+
+# docs <- read_rds("./large_data/DocumentLevelData.rds")
+# docs <- left_join(docs,
+#                   read_rds("./data/DocLevelData_zs.rds") %>% 
+#                     select(-any_of(names(docs)[names(docs) %in% names(analysis_data_doclevel)]), doc_key),
+#                   by = "doc_key"
+#                   ) %>% 
+#   mutate(
+#     period = case_when(
+#       date >= as_date("2018-12-01") ~ "Huawei",
+#       date >= as_date("2018-03-01") ~ "Cambridge Analytica",
+#       date >= as_date("2015-10-01") ~ "Digital Silk Road",
+#       date >= as_date("2013-06-01") ~ "Snowden",
+#       date >= as_date("2012-12-01") ~ "WCIT",
+#       date >= as_date("2010-07-01") ~ "Stuxnet",
+#       date >= as_date("2005-11-01") ~ "WSIS 2005",
+#       date >= as_date("2003-12-01") ~ "WSIS 2003",
+#       TRUE ~ "before"
+#     ) %>% as.factor()
+#   )
+
+# paras <- read_rds("./large_data/ParagraphLevelData.rds")
+# paras <- left_join(paras,
+#                    read_rds("./data/ParaLevelData_zs.rds") %>% 
+#                      select(-any_of(names(paras)[names(paras) %in% names(read_rds("data/ParaLevelData_zs.rds"))]), id),
+#                    by = "id"
+#                    )
+
+# 
+# dp_docs <- 
+#   docs %>% 
+#   filter(digitalsimil) # for sem_simil
 # filter(digital) # for zs
 
 gc()
@@ -167,13 +180,12 @@ gc()
 
 docs$digitalshare <- docs$digitalpara/docs$npara
 hist(docs$digitalshare) # sem_simil
-hist(docs$share_digital_para) # max_subtopic
+# hist(docs$share_digital_para) # max_subtopic
 
 sum(docs$digitalshare >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
-sum(docs$digitalshare >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
 
-docs$digitalsimil <- docs$digitalshare >= .2 # sem_simil
-docs$digital <- docs$share_digital_para >= .2 # zs
+docs$digital <- docs$digitalshare >= .2 # sem_simil
+# docs$digital <- docs$share_digital_para >= .2 # zs
 
 
 docs %>%
@@ -202,21 +214,38 @@ docs %>%
   head(15) # Looks very reasonable, stick with this one for now
 
 
-# digitality over time
+# Quick checks ####
 
-# Share of docs mentioning country by month
+# hist(docs$digital) # Long right tail
+# test <- docs %>% filter(digital > 50) # Press releases with attached docs 
+# table(test$doc_type) # Mainly looong speeches 
+# 
+# docs %>% 
+#   select(contains("simil")) %>% 
+#   pivot_longer(cols = everything()) %>% 
+#   ggplot(aes(x=value, color = name))+
+#   geom_density()
+
+
+# Emphasis of digital affairs over time ####
+
+# Document level ####
+# Share of docs with high prevalence of 'digital' paragraphs (see above)
+
 df <- docs %>% 
 #  select(date, digitalshare) %>% 
   group_by(date) %>% 
   mutate(
-    digitalshare_day = sum(digitalsimil, na.rm = T)/ n(),
+    # digitalshare_day = sum(digitalsimil, na.rm = T)/ n(),
+    digitalshare_day = sum(digital, na.rm = T)/ n(),
     year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
   ungroup() %>% 
   filter(year >= 1997) %>% 
   mutate(month = as.character(date) %>% str_remove("-[0-9]{2}$")) %>% 
   relocate(month) %>% 
   group_by(month) %>% 
-  mutate(digitalshare_month = sum(digitalsimil, na.rm = T) / n()) %>% 
+  # mutate(digitalshare_month = sum(digitalsimil, na.rm = T) / n()) %>% 
+  mutate(digitalshare_month = sum(digital, na.rm = T) / n()) %>% 
   ungroup() %>% 
   mutate(
     period = case_when(
@@ -244,6 +273,9 @@ breaks <-
 labels <- breaks %>% str_remove_all("-01") 
 
 # Plot
+# @ Milan - why are you smooting on daily values here?
+# In my reading this is overly excessive in terms of computation and makes the confidence intervalls of the lm smaller than they should be (for the monthyl series)
+# But happy to learn, if I'm missing something ...
 pl.dp_salience_events <- 
   ggplot(df) +
   geom_point(aes(x = as.Date(paste0(month, "-15")), y= digitalshare_month), colour = "#619933") +
@@ -253,7 +285,7 @@ pl.dp_salience_events <-
   scale_x_continuous(breaks = breaks, labels = labels) +
   scale_y_continuous(labels = scales::percent) +
   labs(title = "Salience of digital affairs in the public communication of the European Commission",
-       subtitle = paste0("Monthly share of Commission press releases, speeches, and statements that discuss digital affairs"),
+       subtitle = paste0("Monthly share of Commission press releases, speeches, and statements that contain at least 20% of pargraphs classified as \'digital affairs\'"),
        x = "",
        y= "",
        caption = "Monthly time-series with linear smooth;\nBreaks represent major geopolitical events relating to digital affairs.") +
@@ -282,21 +314,76 @@ pl.dp_salience_events <-
 
 pl.dp_salience_events
 
-ggsave("./output/plots/dp_salience_events.png", width = 26, height = 15, units = "cm")
+ggsave("./output/plots/dp_salience_events_DocLevel.png", width = 26, height = 15, units = "cm")
 
 
-# Quick checks ####
 
-# hist(docs$digital) # Long right tail
-# test <- docs %>% filter(digital > 50) # Press releases with attached docs 
-# table(test$doc_type) # Mainly looong speeches 
-# 
-# docs %>% 
-#   select(contains("simil")) %>% 
-#   pivot_longer(cols = everything()) %>% 
-#   ggplot(aes(x=value, color = name))+
-#   geom_density()
- 
+# Paragraph level 
+
+df <- paras %>% 
+  select(date, digital) %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric(), # Not using data prior to 1997 !
+         month = as.character(date) %>% str_remove("-[0-9]{2}$")) %>% 
+  filter(year >= 1997) %>% 
+  relocate(month) %>% 
+  group_by(month) %>% 
+  summarise(digitalshare_month = sum(digital, na.rm = T) / n()) %>% 
+  ungroup() %>% 
+  mutate(
+    period = case_when(
+      as.Date(paste0(month, '-01')) >= as_date("2018-12-01") ~ "Huawei",
+      as.Date(paste0(month, '-01')) >= as_date("2018-03-01") ~ "Cambridge Analytica",
+      as.Date(paste0(month, '-01')) >= as_date("2015-10-01") ~ "Digital Silk Road",
+      as.Date(paste0(month, '-01')) >= as_date("2013-06-01") ~ "Snowden",
+      as.Date(paste0(month, '-01')) >= as_date("2012-12-01") ~ "WCIT",
+      as.Date(paste0(month, '-01')) >= as_date("2010-07-01") ~ "Stuxnet",
+      as.Date(paste0(month, '-01')) >= as_date("2005-11-01") ~ "WSIS 2005",
+      as.Date(paste0(month, '-01')) >= as_date("2003-12-01") ~ "WSIS 2003",
+      TRUE ~ "before"
+    ) %>% as.factor()
+  )
+
+# Plot
+pl.dp_salience_events <- 
+  ggplot(df) +
+  geom_point(aes(x = as.Date(paste0(month, "-15")), y= digitalshare_month), colour = "#619933") +
+  geom_smooth(aes(x = as.Date(paste0(month, "-15")), y = digitalshare_month, group = period), 
+              method = "lm", se = T, color = "black") +
+  
+  scale_x_continuous(breaks = breaks, labels = labels) +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Salience of digital affairs in the public communication of the European Commission",
+       subtitle = paste0("Monthly share of paragraphs in Commission press releases, speeches, and statements that are classified as \'digital affairs\'"),
+       x = "",
+       y= "",
+       caption = "Monthly time-series with linear smooth;\nBreaks represent major geopolitical events relating to digital affairs.") +
+  theme_bw() +
+  theme(legend.position = "none",
+        # text=element_text(family = "Dahrendorf"),
+        axis.text.x = element_text(angle = 90, vjust = .5),
+        strip.text = element_text(face = "bold"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 14)) +
+  geom_vline(xintercept = as.Date("2003-12-01"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2005-11-01"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2010-07-01"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2012-12-01"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2013-06-01"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2015-10-01"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2018-03-01"), linetype = "dotted") +
+  geom_vline(xintercept = as.Date("2018-12-01"), linetype = "dotted") +
+  annotate("text", 
+           x = c(as.Date("2003-12-01"), as.Date("2005-11-01"), as.Date("2010-07-01"), as.Date("2012-12-01"), 
+                 as.Date("2013-06-01"), as.Date("2015-10-01"), as.Date("2018-03-01"), as.Date("2018-12-01")) + 111,
+           y = .22,
+           label = c("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
+           angle = 270, size = 2.3, hjust = 0
+  )
+
+pl.dp_salience_events
+
+ggsave("./output/plots/dp_salience_events_ParaLevel.png", width = 26, height = 15, units = "cm")
+
 
 
 # Country mentions // "Geopolitics" ####
