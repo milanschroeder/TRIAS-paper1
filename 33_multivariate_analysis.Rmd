@@ -1,0 +1,186 @@
+# multivariate analysis of digital- & geo-politics 
+
+plot correlation over time: 
+
+```{r}
+library(tidyverse)
+library(magrittr)
+
+analysis_data %<>%
+    mutate(year = year(date)) %>%
+    filter(year != 2024)
+
+analysis_data_doclevel %<>%
+    mutate(year = year(date)) %>%
+    filter(year != 2024)
+```
+
+
+
+define function: 
+
+```{r}
+plot_cor_trend <- function(var1, var2, groupingvar, plot_title = "", plot_subtitle = "", plotname = "cor_trend"){
+  # groupgvariabel should be a year
+  
+  data <- tibble(
+    var1 = var1,
+    var2 = var2,
+    year = groupingvar
+  )
+    
+  cor_data <- data  %>%
+    group_by(year) %>%
+    summarise(cor = cor.test(var1, var2)$estimate,
+              lower = cor.test(var1, var2)$conf.int[1],
+              upper = cor.test(var1, var2)$conf.int[2]
+            )
+  
+  cor_trend_plot <- 
+  ggplot(cor_data, 
+       aes(x = year, y = cor)) +
+  geom_hline(yintercept = 0, linetype ="dotted") +
+  geom_errorbar(aes(ymin = lower, ymax = upper), colour = "grey", width = 0.2) +
+  geom_point() +
+  geom_line() +
+  labs(x = "Year",
+       y = "Correlation (with 95% CI)",
+       title = plot_title,
+       subtitle = plot_subtitle) +
+  theme_bw()
+
+ggsave(paste0("output/plots/bivariate/", plotname, ".png"),
+       cor_trend_plot,
+       width = 24, height = 27, units = "cm")
+  
+  return(cor_trend_plot)
+}
+```
+
+doclevel shares:
+
+```{r}
+plot_cor_trend(analysis_data_doclevel$share_digital_para, 
+               analysis_data_doclevel$cm_external_share, 
+               analysis_data_doclevel$year,
+               "Correlation of digital- and geopolitics over time",
+               "share of paragraphs classified as 'digital' and share of non-EU states mentioned (document level)",
+               "cor_trend_dig_share_external_doc")
+```
+
+
+paralevel shares:
+
+```{r}
+plot_cor_trend(analysis_data$zs_max, 
+               analysis_data$cm_external, 
+               analysis_data$year,
+               "Correlation of digital- and geopolitics over time",
+               "share of paragraphs classified as 'digital' and share of non-EU states mentioned (paragraph level)",
+               "cor_trend_dig_external_para")
+```
+
+
+```{r}
+plot_cor_trend(analysis_data$zs_max, 
+               analysis_data$RU, 
+               analysis_data$year,
+               "Correlation of digital- and geopolitics over time",
+               "'digitality' score and mentions of Russia (paragraph level)",
+               "cor_trend_para_zs_RU")
+```
+```{r}
+plot_cor_trend(analysis_data$zs_max, 
+               analysis_data$cm_BRICS, 
+               analysis_data$year,
+               "Correlation of digital- and geopolitics over time",
+               "'digitality' score and mentions of Russia (paragraph level)",
+               "cor_trend_para_zs_BRICS")
+```
+
+```{r}
+plot_cor_trend(analysis_data$zs_max, 
+               analysis_data$CN, 
+               analysis_data$year,
+               "Correlation of digital- and geopolitics over time",
+               "'digitality' score and mentions of China (paragraph level)",
+               "cor_trend_para_zs_CN")
+```
+faceted:
+
+```{r}
+plot_title <- "Correlation of digital- and geopolitics over time"
+plot_subtitle <- "'digitality' classification and mentions of Great Powers (paragraph level)"
+plotname <- "cor_trend_para_zs_powers"
+  
+analysis_data_long <- 
+  analysis_data %>% 
+  pivot_longer(US:RU, 
+               names_to = "facet",
+               values_to = "mentions")
+
+  cor_data <- analysis_data_long  %>%
+    group_by(year, facet) %>%
+    summarise(cor = cor.test(zs_digital, mentions)$estimate,
+              lower = cor.test(zs_digital, mentions)$conf.int[1],
+              upper = cor.test(zs_digital, mentions)$conf.int[2]
+            )
+  
+  cor_trend_plot <- 
+  ggplot(cor_data, 
+       aes(x = year, y = cor)) +
+  geom_hline(yintercept = 0, linetype ="dotted") +
+  geom_errorbar(aes(ymin = lower, ymax = upper), colour = "grey", width = 0.2) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(vars(facet), nrow = 3) +
+  labs(x = "Year",
+       y = "Correlation (with 95% CI)",
+       title = plot_title,
+       subtitle = plot_subtitle) +
+  theme_bw()
+
+ggsave(paste0("output/plots/bivariate/", plotname, ".png"),
+       cor_trend_plot,
+       width = 24, height = 27, units = "cm")
+
+cor_trend_plot
+```
+```{r}
+plot_title <- "Correlation of digital- and geopolitics over time"
+plot_subtitle <- "'digitality' classification and mentions of country groups (paragraph level)"
+plotname <- "cor_trend_para_zsbin_groups"
+  
+analysis_data_long <- 
+  analysis_data %>% 
+  pivot_longer(cm_EU:cm_BRICSplus, 
+               names_to = "facet",
+               values_to = "mentions")
+
+  cor_data <- analysis_data_long  %>%
+    group_by(year, facet) %>%
+    summarise(cor = cor.test(zs_digital, mentions)$estimate,
+              lower = cor.test(zs_digital, mentions)$conf.int[1],
+              upper = cor.test(zs_digital, mentions)$conf.int[2]
+            )
+  
+  cor_trend_plot <- 
+  ggplot(cor_data, 
+       aes(x = year, y = cor)) +
+  geom_hline(yintercept = 0, linetype ="dotted") +
+  geom_errorbar(aes(ymin = lower, ymax = upper), colour = "grey", width = 0.2) +
+  geom_point() +
+  geom_line() +
+  facet_wrap(vars(facet), nrow = 3) +
+  labs(x = "Year",
+       y = "Correlation (with 95% CI)",
+       title = plot_title,
+       subtitle = plot_subtitle) +
+  theme_bw()
+
+ggsave(paste0("output/plots/bivariate/", plotname, ".png"),
+       cor_trend_plot,
+       width = 24, height = 27, units = "cm")
+
+cor_trend_plot
+```

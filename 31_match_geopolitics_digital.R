@@ -6,8 +6,15 @@
 library(tidyverse)
 library(magrittr)
 
+# data merging: ####
+
 # adaptable Classification Cutoff:
 zs_max_cutoff = 0.7
+
+# update data:
+outfile <- "zs_subtopics.csv"
+googledrive::drive_download(paste0("TRIAS/", outfile), paste0("data/", outfile), overwrite = T)
+
 
 # lookup EU membership status:
 EU_at_time <- 
@@ -28,8 +35,8 @@ analysis_data <-
   # Classification is the same for duplicate texts:
   read_rds("data/all_texts.rds") %>% 
   left_join(.,
-            read_csv("data/zs_subtopics.csv") %>% 
-              select(text_para = text, target_max:digital_policy),
+          read_csv(paste0("data/", outfile)) %>% 
+            select(text_para = text, target_max:digital_policy),
             join_by(text_para)
             ) %>% 
   filter(!is.na(digital_policy)) %>% 
@@ -47,7 +54,7 @@ analysis_data <-
     
   # add Country Mentions:
   left_join(., 
-            read_rds("large_data-paper1/CountryMentions_NM-dict_ParagraphLevel.rds") %>% 
+            read_rds("large_data/CountryMentions_NM-dict_ParagraphLevel.rds") %>% 
               select(-c(doc_pos, doc_key)) , 
             join_by(id)
             ) %>% 
@@ -101,7 +108,7 @@ analysis_data %<>%
   select(-c(BI:WS), US, CN, RU, ZA, IN, BR)
 
 
-# aggregate on doclevel:
+# aggregate on doclevel: ####
 
 analysis_data_doclevel <- 
   analysis_data %>% 
@@ -141,4 +148,146 @@ analysis_data_doclevel <-
   ungroup() %>% 
   select(-cm_total_share)
 
+
+# save data: ####
+write_rds(analysis_data, "./data/ParaLevelData_zs.rds")
+write_rds(analysis_data_doclevel, "./data/DocLevelData_zs.rds")
+
+### Validation (Doclevel) ####
   
+
+cor(analysis_data_doclevel$share_digital_para, analysis_data_doclevel$cm_CN_wider_share)
+
+# define cutoff function:
+calc_cutoff_candidates <- function(cutoffvar, targetvar, seqstart = 0, seqend = 1, seqstep = .01, facetingvar = "cutoff") {
+  ### targetvar: boolean!
+  ### facetingvar needs to be present in  long format data!
+  
+  library(magrittr)
+  
+  inputdata <- tibble(
+    targetvar = targetvar,
+    cutoffvar = cutoffvar,
+    facetingvar = facetingvar
+  )
+  df <- inputdata
+  
+  cutoff_candidates <- tibble()
+  facets <- unique(facetingvar)
+  
+  for (facet in facets) {
+    
+    df <- filter(inputdata, facetingvar == facet)
+    
+    for (cutoff in seq(seqstart, seqend, seqstep)) {
+      
+      df %<>% mutate(pred = cutoffvar > cutoff) 
+      
+      TP <- sum(df$pred & df$targetvar)
+      TN <- sum(!df$pred & !df$targetvar)
+      FP <- sum(df$pred & !df$targetvar)
+      FN <- sum(!df$pred & df$targetvar)
+      
+      precision <- TP / (TP + FP)
+      recall <- TP / (TP + FN)
+      f1 <- 2*(precision*recall)/(precision+recall)
+      accuracy <- (TP + TN) / (TP + TN + FP + FN)
+      baccuracy <- ((TP / (TP + FN)) + (TN / (TN + FP))) / 2 # Balanced accuracy (because imbalanced sample!) - https://neptune.ai/blog/balanced-accuracy
+      
+      cutoff_candidates %<>% 
+        bind_rows(., tibble_row(cutoff, precision, recall, f1, accuracy, baccuracy, TP, FP, TN, FN, facet))
+    }
+  }
+  return(cutoff_candidates)
+}
+# define plotting function:
+plot_metrics <- function(data, scorename, plotname, facetingvar = NULL){
+  
+  library(magrittr)
+  data %<>% mutate(facet = facetingvar)
+  
+  # # Accuracy
+  # pl.accuracy <-
+  #   ggplot(cutoffs, aes(x=cutoff, y = accuracy, group = facet), )+
+  #   geom_point(color = "darkgreen")+
+  #   geom_line(color = "darkgreen")+
+  #   labs(title = "Accuracy",
+  #        subtitle = "What overall share of texts is correctly classified?",
+  #        y = "Accuracy\n",
+  #        x = "Chosen semantic similarity cutoff")+
+  #   theme_bw()
+  
+  # Balanced Accuracy
+  pl.baccuracy <-
+    ggplot(data, aes(x=cutoff, y = baccuracy, group = facet), )+
+    geom_point(color = "darkgreen")+
+    geom_line(color = "darkgreen")+
+    labs(title = "<b>Balanced Accuracy</b>: What overall share of documents in each category is correctly classified?",
+         y = "Accuracy\n",
+         x = "")+
+    theme_bw()+
+    theme(plot.title = element_markdown())
+  
+  
+  # Precision and recall
+  
+  pr <- data %>% 
+    select(cutoff, precision, recall, facet) %>% 
+    pivot_longer(cols = 2:3, names_to = "metric", values_to = "value")
+  
+  pl.precrec <-
+    ggplot(pr, aes(x=cutoff, y = value, color = metric))+
+    geom_point()+
+    geom_line()+
+    scale_color_manual(values = c("#d95f02", "#7570b3"))+
+    labs(title = "<b>Precision & recall</b>",
+         subtitle = "<span style = 'color:#d95f02;'><b>Precision</b></span>: What share of retrieved documents is actually relevant?<br><span style = 'color:#7570b3;'><b>Recall<b></span>: What share of actually relevant documents is is retrieved?",
+         y = "Value\n",
+         x = "",
+         color = "")+
+    theme_bw()+
+    theme(legend.position = "none",
+          plot.subtitle = element_markdown(),
+          plot.title = element_markdown()) 
+  
+  # F1 Score
+  pl.f1 <-
+    ggplot(data, aes(x=cutoff, y = f1, group = facet), )+
+    geom_point(color = "black")+
+    geom_line(color = "black")+
+    labs(title = "<b>F1 Score</b>: Harmonized mean of recall & precision",
+         y = "F1 score\n",
+         x = paste("\nClassification cutoff applied to", scorename)) +
+    theme_bw()+
+    theme(plot.title = element_markdown()) 
+  
+  if (!is.null(facetingvar)) {
+    pl.f1 <- pl.f1 + facet_grid(. ~ facet)
+    pl.precrec <- pl.precrec + facet_grid(. ~ facet)
+    pl.baccuracy <- pl.baccuracy + facet_grid(. ~ facet)
+    # pl.accuracy <- pl.accuracy + facet_grid(. ~ facet)
+  }
+  
+  # Combined plot
+  pl.comb <- # pl.accuracy /
+    pl.baccuracy / pl.precrec / pl.f1
+  
+  ggsave(paste0("./output/plots/", plotname, ".png"), 
+         pl.comb, width = 24, height = 27, units = "cm")
+  
+  return(pl.comb)
+}
+
+
+
+doc_subtopics <- analysis_data_doclevel %>% 
+  pivot_longer(c(digital_communications_max, internet_technologies_max, digital_services_max, digital_algorithms_max, digitized_data_max, max_digital_score), 
+               names_to = "label", 
+               values_to = "score")
+
+cutoffs_doc <- calc_cutoff_candidates(cutoffvar = doc_subtopics$score, targetvar = doc_subtopics$handcoding_max, facetingvar = doc_subtopics$label)
+
+plot_metrics(data = cutoffs_doc, 
+             scorename = "Zeroshot Score with finegrained labels (document level)",
+             plotname = "Digital_classification_cutoff_doc",
+             facetingvar = cutoffs_doc$facet)
