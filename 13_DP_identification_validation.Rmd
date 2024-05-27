@@ -3,6 +3,7 @@
 ### Label to identiy:
 The text is a statement that relates to the digital sphere in the widest sense. This may include general or specific themes related to the internet, digital communications and services, algorithms and digitized data, or the technologies that underpin digitalisation.'"
 
+
 ```{r}
 outfile <- "zs_subtopics.csv"
 googledrive::drive_download(paste0("TRIAS/", outfile), paste0("data/", outfile), overwrite = T)
@@ -69,6 +70,13 @@ plot_metrics <- function(data, scorename, plotname, facetingvar = NULL){
 
   library(magrittr)
   data %<>% mutate(facet = facetingvar)
+  
+  best_candidate <- data
+    
+   if (!is.null(facetingvar)) {best_candidate %<>% filter(facet == "max_subtopic")}
+     
+  best_candidate <- (best_candidate %>% 
+    filter(f1 == max(best_candidate$f1, na.rm = T)))$cutoff[1]
 
 # # Accuracy
 # pl.accuracy <-
@@ -86,6 +94,7 @@ pl.baccuracy <-
   ggplot(data, aes(x=cutoff, y = baccuracy, group = facet), )+
   geom_point(color = "darkgreen")+
   geom_line(color = "darkgreen")+
+  geom_vline(xintercept = best_candidate, linetype = "dotted") +
   labs(title = "<b>Balanced Accuracy</b>: What overall share of documents in each category is correctly classified?",
        y = "Accuracy\n",
        x = "")+
@@ -103,6 +112,7 @@ pl.precrec <-
   ggplot(pr, aes(x=cutoff, y = value, color = metric))+
   geom_point()+
   geom_line()+
+  geom_vline(xintercept = best_candidate, linetype = "dotted") +
   scale_color_manual(values = c("#d95f02", "#7570b3"))+
   labs(title = "<b>Precision & recall</b>",
        subtitle = "<span style = 'color:#d95f02;'><b>Precision</b></span>: What share of retrieved documents is actually relevant?<br><span style = 'color:#7570b3;'><b>Recall<b></span>: What share of actually relevant documents is is retrieved?",
@@ -119,6 +129,7 @@ pl.f1 <-
   ggplot(data, aes(x=cutoff, y = f1, group = facet), )+
   geom_point(color = "black")+
   geom_line(color = "black")+
+  geom_vline(xintercept = best_candidate, linetype = "dotted") +
   labs(title = "<b>F1 Score</b>: Harmonized mean of recall & precision",
        y = "F1 score\n",
        x = paste("\nClassification cutoff applied to", scorename)) +
@@ -253,8 +264,8 @@ plot_metrics(data = cutoffs_bart_seed,
 ```
 ```{r}
 bart_sub <- zeroshot %>% 
-  mutate(max_subtopic = pmax(digital_communications, internet_technologies, digital_services, `digital algorithms`, digitized_data, digital_policy, na.rm = T)) %>%
-  pivot_longer(c(digital_communications, internet_technologies, digital_services, `digital algorithms`, digitized_data, digital_policy, max_subtopic), 
+  mutate(max_subtopic = pmax(digital_communications, internet_technologies, digital_services, digital_algorithms, digitized_data, digital_policy, na.rm = T)) %>%  #, mean_subtopic = (digital_communications + internet_technologies + digital_services + digital_algorithms + digitized_data + digital_policy) / 6)
+  pivot_longer(c(digital_communications, internet_technologies, digital_services, digital_algorithms, digitized_data, digital_policy, max_subtopic), 
                names_to = "label", 
                values_to = "score")
 
