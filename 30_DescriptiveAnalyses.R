@@ -167,9 +167,9 @@ docs <-
 #                    )
 
 # 
-# dp_docs <- 
-#   docs %>% 
-#   filter(digitalsimil) # for sem_simil
+dp_docs <-
+  docs %>%
+  filter(digital) # for sem_simil
 # filter(digital) # for zs
 
 gc()
@@ -631,7 +631,10 @@ rbind(
 df_dp %>%
   filter(type == "yearly") %>% 
   ggplot() +
-  geom_point(aes(x = date, y = share, colour = country))
+  geom_point(aes(x = date, y = share, colour = country))+
+  geom_smooth(aes(x =date, y = share, group = period), colour = "black", method = "lm", se = T, 
+              data = df_dp %>% filter(type == "yearly"))+
+  facet_wrap(. ~country, nrow = 2) 
   
 # breaks <- 
 #   df_dp %>% 
@@ -654,12 +657,14 @@ labels <- breaks %>% str_remove_all("-01")
 ggplot() +
   # geom_point(aes(x = month, y = share, colour = country),
   #           df_dp %>% filter(type == "yearly")) +
-  geom_point(aes(x = month, y = share, colour = country),
-            df_dp %>% filter(type == "monthly")) +
-    geom_smooth(aes(x = month, y = share, group = period), colour = "black", method = "lm", se = T, 
+ # geom_smooth(aes(x = month, y = share, group = period), colour = "black", method = "lm", se = T, 
+ #              data = df_dp %>% filter(type == "monthly")) +
+  geom_smooth(aes(x = month, y = share, group = period, colour = country), method = "lm", se = T,
               data = df_dp %>% filter(type == "monthly")) +
+  # geom_smooth(aes(x = month, y = share, group = period, colour = country), method = "loess", se = F, 
+  #             data = df_dp %>% filter(type == "monthly")) +
   scale_color_manual(values = c("United States" = "#0380b5", "China" = "red")) +
-  facet_wrap(. ~country, nrow = 2) +
+  facet_wrap(. ~country, nrow = 2, scales = "free_y") +
 #  scale_x_date(date_labels = "%Y", date_breaks = "1 year") +
    scale_x_discrete(breaks = breaks, labels = labels) +
   scale_y_continuous(labels =scales::percent)+
@@ -676,7 +681,7 @@ ggplot() +
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 10),
         plot.subtitle = element_text(size = 9)) +
-  coord_cartesian(ylim = c(0, 1)) +
+  # coord_cartesian(ylim = c(0, 1)) +
   geom_vline(xintercept = "2003-12", linetype = "dotted") +
   geom_vline(xintercept = "2005-11", linetype = "dotted") +
   geom_vline(xintercept = "2010-07", linetype = "dotted") +
@@ -684,14 +689,15 @@ ggplot() +
   geom_vline(xintercept = "2013-06", linetype = "dotted") +
   geom_vline(xintercept = "2015-10", linetype = "dotted") +
   geom_vline(xintercept = "2018-03", linetype = "dotted") +
-  geom_vline(xintercept = "2018-12", linetype = "dotted")
-  # annotate("text", 
+  geom_vline(xintercept = "2018-12", linetype = "dotted") 
+  # annotate("text",
   #          x = c("2003-12", "2005-11", "2010-07", "2012-12", "2013-06", "2015-10", "2018-03", "2018-12"),
   #          y = .95,
-  #          label = c("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
-  #          angle = 270, size = 2.3, hjust = 0) 
+  #          country = rep(c("United States", "China"), 4),
+  #          label = rep("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
+  #          angle = 270, size = 2.3, hjust = 0)
 
-  ggsave("./output/plots/CountryMentions/US&CN-prevalence_OverTime-digital.png", width = 24, height = 24, units = "cm")
+  ggsave("./output/plots/CountryMentions/US&CN-prevalence_OverTime-digital.png", width = 24, height = 20, units = "cm")
   
 
 # Trends over time for selected countries ####
