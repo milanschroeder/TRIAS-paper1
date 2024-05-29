@@ -166,13 +166,6 @@ docs <-
 #                    by = "id"
 #                    )
 
-# 
-dp_docs <-
-  docs %>%
-  filter(digital) # for sem_simil
-# filter(digital) # for zs
-
-gc()
 
 # When does a document matter for digitality?
 # Taking initial choices here as the NLI classification is not likely to be finished in time and 
@@ -187,7 +180,16 @@ sum(docs$digitalshare >= .2) # At least 1/5 of paras has to be relevant for digi
 docs$digital <- docs$digitalshare >= .2 # sem_simil
 # docs$digital <- docs$share_digital_para >= .2 # zs
 
+# digital docs only: ####
+dp_docs <-
+  docs %>%
+  filter(digital) # for sem_simil
+# filter(digital) # for zs
 
+gc()
+
+
+# qualitative examples: ####
 docs %>%
   arrange(desc(digitalshare)) %>% 
   select(npara, digitalshare, title) %>% 
@@ -732,7 +734,48 @@ df <- docs %>%
       ) %>% as.factor()
     )
   
-
+# combined mentions of both US & CN:
+  ggplot() +
+    geom_line(data = docs %>% 
+                mutate(year = year(date)) %>% 
+                group_by(year) %>% 
+                summarize(share = mean(superpowers_mentioned)),
+              mapping = aes(x = year, y = share), colour = "#0380b5"
+    ) +
+    geom_line(data = dp_docs %>% 
+                mutate(year = year(date)) %>% 
+                group_by(year) %>% 
+                summarize(share = mean(superpowers_mentioned)),
+              mapping = aes(x = year, y = share), colour = "#619933"
+    ) +
+    scale_y_continuous(labels =scales::percent)+
+    geom_vline(xintercept = 2003+11/12, linetype = "dotted") +
+    geom_vline(xintercept = 2005+10/12, linetype = "dotted") +
+    geom_vline(xintercept = 2010+6/12, linetype = "dotted") +
+    geom_vline(xintercept = 2012+11/12, linetype = "dotted") +
+    geom_vline(xintercept = 2013+5/12, linetype = "dotted") +
+    geom_vline(xintercept = 2015+9/12, linetype = "dotted") +
+    geom_vline(xintercept = 2018+2/12, linetype = "dotted") +
+    geom_vline(xintercept = 2018+11/12, linetype = "dotted") +
+    labs(title = "Share of documents that mention both major world powers in the public communication of the European Commission",
+         subtitle = "Yearly share of Commission press releases, speeches, and statements that mention both the US and China at least once",
+         caption = "Green: Documents classified as digital\nBlue: All Documents") +
+    theme(legend.position = c(0.1, 0.3),
+          plot.margin = unit(c(.3,.3,.3,.3), "cm"),
+          plot.background = element_rect(fill = "white", color = NA),
+          plot.title = element_text(face = "bold", size = 14),
+          plot.caption = element_text(face = "italic", size = 8)) +
+    coord_cartesian(xlim = c(1997, 2023)) +
+    annotate("text",
+             x = c(2003+11/12, 2005+10/12, 2010+6/12, 2012+11/12, 2013+5/12, 2015+9/12, 2018+2/12, 2018+11/12) + .3,
+             y = .01,
+             label = c("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
+             angle = 270, size = 2.2, hjust = 0) +
+    theme_bw()
+  ggsave("./output/plots/CountryMentions/comentions_superpowers_dp.png", width = 26, height = 15, units = "cm")
+  
+  
+  
 # Plotting parameters
 breaks <- 
   df %>% 
