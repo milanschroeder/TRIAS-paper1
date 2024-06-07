@@ -1068,10 +1068,100 @@ pl.concerns <-
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 14))
 
-ggsave("./output/plots/RelativeEmphasis_Conerns.png", pl.concerns, width = 28, height = 24, units = "cm")
+ggsave("./output/plots/RelativeEmphasis_Concerns.png", pl.concerns, width = 28, height = 24, units = "cm")
 
   
 
+# Emphasis of economic, liberal rights, or security concerns ####
+# Single difference between digital and non-digital documents 
+
+
+concerns <- docs %>% 
+  select(date, digital, contains("_simil")) %>% 
+  mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
+  filter(year >= 1997) %>% 
+  mutate(month = as.character(date) %>% str_remove("-[0-9]{2}$")) %>% 
+  select(-c(date, year)) %>% 
+  relocate(month) %>% 
+  pivot_longer(contains("_simil"), names_to = "concern", values_to = "sem_simil")
+# %>% 
+#   group_by(month, digital, concern) %>%
+#   summarise(sem_smil = mean(sem_smil))
+
+df.nodp <- concerns %>% filter(!digital) %>% group_by(month, concern) %>% summarise(sem_simil = mean(sem_simil)) %>% ungroup() %>% rename(simil_nodp = sem_simil)
+df.dp <- concerns %>% filter(digital) %>% group_by(month, concern) %>% summarise(sem_simil = mean(sem_simil)) %>% ungroup() %>% rename(simil_dp = sem_simil)
+
+df <- df.nodp %>% 
+  left_join(df.dp, by = c("month", "concern")) %>% 
+  mutate(balance = simil_dp - simil_nodp) %>% # Relative emphasis comparision betwee digital and non-digital docs
+  mutate(
+    period = case_when(
+      month >= "2018-12" ~ "Huawei",
+      month >= "2018-03" ~ "Cambridge Analytica",
+      month >= "2015-10" ~ "Digital Silk Road",
+      month >= "2013-06" ~ "Snowden",
+      month >= "2012-12" ~ "WCIT",
+      month >= "2010-07" ~ "Stuxnet",
+      month >= "2005-11" ~ "WSIS 2005",
+      month >= "2003-12" ~ "WSIS 2003",
+      TRUE ~ "before"
+    ) %>% as.factor() 
+  )
+
+hist(df$balance)
+
+df$concern[str_detect(df$concern, "economy")] <- "Economy language"
+df$concern[str_detect(df$concern, "librights")] <- "Liberal rights language"
+df$concern[str_detect(df$concern, "security")] <- "Security language"
+table(df$concern)
+df$concern <- factor(df$concern, levels = c("Economy language", "Liberal rights language", "Security language"))
+
+breaks <- 
+  df %>% 
+  select(month) %>% 
+  unique() %>% 
+  filter(str_detect(month, "-01")) %>% 
+  pull()
+labels <- breaks %>% str_remove_all("-01") 
+
+pl.concerns <- 
+  ggplot(df, aes(x = month, y= balance))+
+  geom_hline(yintercept = 0, linetype = "solid")+
+  geom_point(aes(color = concern))+
+  geom_smooth(aes(group = period), 
+              method = "lm", se = T, color = "black")+
+  # geom_smooth(method = "loess", span = .1, se = F)+
+  scale_x_discrete(breaks = breaks, labels = labels)+
+  geom_vline(xintercept = "2003-12", linetype = "dotted") +
+  geom_vline(xintercept = "2005-11", linetype = "dotted") +
+  geom_vline(xintercept = "2010-07", linetype = "dotted") +
+  geom_vline(xintercept = "2012-12", linetype = "dotted") +
+  geom_vline(xintercept = "2013-06", linetype = "dotted") +
+  geom_vline(xintercept = "2015-10", linetype = "dotted") +
+  geom_vline(xintercept = "2018-03", linetype = "dotted") +
+  geom_vline(xintercept = "2018-12", linetype = "dotted") +
+  # scale_color_manual(values = c("#0380b5", "#619933"))+
+  # scale_linetype_manual(values = c("solid", "dotted"), guide = 'none')+
+  # scale_size_manual(values = c(1, .5), guide = "none")+
+  facet_wrap(.~concern, ncol = 1, scales = "free_y") +
+  labs(title = "Relative emphasis of diffferent concerns in the public communication of the European Commission",
+       subtitle = paste0("Based on the semantic similarity to seed word dictionaries on the respective concern (monthly averages).\nValues greater than 0 indicate that the respective language is more prevalent in 'digital affairs' documents,\nvalues smaller than 0 indicate that it is more prevalent in other Commission communication."),
+       x = "",
+       y= "",
+       caption = "Dots indicate monthly values, linear smoother in between global digital policy events (marked by vertical lines).",
+       color = "Comparision set:")+
+  theme_bw()+
+  theme(legend.position = "none",
+        legend.justification='left',
+        legend.direction='horizontal',
+        legend.box.margin = margin(-5,0,-5,-5),
+        legend.text=element_text(size=11),
+        axis.text.x = element_text(angle = 90, vjust = .5),
+        strip.text = element_text(face = "bold"),
+        plot.background = element_rect(fill = "white", color = NA),
+        plot.title = element_text(face = "bold", size = 14))
+
+ggsave("./output/plots/RelativeEmphasis_Concerns.png", pl.concerns, width = 30, height = 26, units = "cm")
 
 
 
