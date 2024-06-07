@@ -19,6 +19,7 @@ library(textclean)
 library(stringi)
 library(quanteda)
 library(readxl)
+library(magrittr)
 
 
 # Word embeddings ####
@@ -34,7 +35,7 @@ library(readxl)
 # glove.300 <- read_rds("C:/Users/chris/Downloads/glove.6B.300d.rds") # HP path
 # glove.300 <- read_rds("C:/Users/rauh/Downloads/glove.6B.300d.rds") # ThinkPad path
 glove.300 <- read_rds("C:/Users/rauh/Downloads/glove.6B.300d.rds") # WZB path
-
+glove.300 <- read_rds("./large_data/glove.6B.300d.rds") # MS path
 
 # Clean up the vocabulary a bit (lots of rare trash in there, exclude stopwords)
 vocab <- names(glove.300) %>% 
@@ -121,7 +122,10 @@ seed_security <- c("security", "defense", "military", "espionage", "intelligence
 # Liberal rights terms
 seed_librigths <- c("rights", "liberty", "freedom", "justice", "equality")
 
+seed_geo <- c("geopolitical", "geopolitics", "international", "global", "world", "worldwide")
 
+seed_chance <- c("potential", "benefit", "profit", "advantage", "chance")
+seed_risk <- c("danger", "threat", "vulnerabilities", "crisis", "risk") # protection?
 
 
 # Calculate concept movers distances ####
@@ -134,13 +138,19 @@ cmds <- cbind(CMDist(dtm = dfm_para, cw = seed_dp_simple, wv = glove.300, scale 
               CMDist(dtm = dfm_para, cw = seed_dp_adv, wv = glove.300, scale = F)[,2],
               CMDist(dtm = dfm_para, cw = seed_econ, wv = glove.300, scale = F)[,2],
               CMDist(dtm = dfm_para, cw = seed_security, wv = glove.300, scale = F)[,2],
-              CMDist(dtm = dfm_para, cw = seed_librigths, wv = glove.300, scale = F)[,2]) %>%
+              CMDist(dtm = dfm_para, cw = seed_librigths, wv = glove.300, scale = F)[,2],
+              CMDist(dtm = dfm_para, cw = seed_geo, wv = glove.300, scale = F)[,2],
+              CMDist(dtm = dfm_para, cw = seed_chance, wv = glove.300, scale = F)[,2],
+              CMDist(dtm = dfm_para, cw = seed_risk, wv = glove.300, scale = F)[,2]) %>%
   as.data.frame() %>% 
   rename(cmd_digital_simple = 1,
          cmd_digital_adv =2,
          cmd_economy = 3,
          cmd_security = 4,
-         cmd_librights = 5) %>% 
+         cmd_librights = 5,
+         cmd_geo = 6,
+         cmd_chance = 7,
+         cmd_risk = 8) %>% 
   mutate(id = row_number()) %>% # Quanteda preserves order (I hope ;))
   left_join(texts %>% select(c(id, text_para)), by = "id") %>% 
   relocate(c(id, text_para))
@@ -149,8 +159,8 @@ Sys.time() - start
 
 
 
+# risk-chance scaling:
+cmds %<>% mutate(risk_chance = cmd_chance - cmd_risk)
 
 
-
-
-
+write_rds(cmds, "./data/CMDs.rds")
