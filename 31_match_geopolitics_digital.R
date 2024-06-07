@@ -13,8 +13,8 @@ zs_max_cutoff = 0.7
 
 # update data:
 outfile <- "zs_subtopics.csv"
-googledrive::drive_download(paste0("TRIAS/", outfile), paste0("data/", outfile), overwrite = T)
-
+# googledrive::drive_download(paste0("TRIAS/", outfile), paste0("data/", outfile), overwrite = T)
+file.copy(from = paste0("M:/user/schroeder/", outfile), to = paste0("./data/", outfile), overwrite = T)
 
 # lookup EU membership status:
 EU_at_time <- 

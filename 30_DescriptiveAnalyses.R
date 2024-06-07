@@ -7,6 +7,7 @@ library(countrycode)
 library(flextable)
 library(magrittr)
 library(zoo)
+library(ggtext)
 
 
 # Assemble extracted text data ####
@@ -133,58 +134,69 @@ docs <-
   arrange(date, doc_key) 
 
 ### save for later:
-# write_rds(docs, "./large_data/DocumentLevelData.rds", compress = "gz")
-# write_rds(paras, "./large_data/ParagraphLevelData.rds", compress = "gz")
+ write_rds(docs, "./large_data/DocumentLevelData.rds", compress = "gz")
+ write_rds(paras, "./large_data/ParagraphLevelData.rds", compress = "gz")
 
 
 # join ZS Classifications and aggregations from 31_match_geopolitics.R:
 
-# docs <- read_rds("./large_data/DocumentLevelData.rds")
-# docs <- left_join(docs,
-#                   read_rds("./data/DocLevelData_zs.rds") %>% 
-#                     select(-any_of(names(docs)[names(docs) %in% names(analysis_data_doclevel)]), doc_key),
-#                   by = "doc_key"
-#                   ) %>% 
-#   mutate(
-#     period = case_when(
-#       date >= as_date("2018-12-01") ~ "Huawei",
-#       date >= as_date("2018-03-01") ~ "Cambridge Analytica",
-#       date >= as_date("2015-10-01") ~ "Digital Silk Road",
-#       date >= as_date("2013-06-01") ~ "Snowden",
-#       date >= as_date("2012-12-01") ~ "WCIT",
-#       date >= as_date("2010-07-01") ~ "Stuxnet",
-#       date >= as_date("2005-11-01") ~ "WSIS 2005",
-#       date >= as_date("2003-12-01") ~ "WSIS 2003",
-#       TRUE ~ "before"
-#     ) %>% as.factor()
-#   )
+ docs <- read_rds("./large_data/DocumentLevelData.rds")
+ docs <- left_join(docs,
+                  read_rds("./data/DocLevelData_zs.rds") %>%
+                    select(-any_of(names(docs)[names(docs) %in% names(analysis_data_doclevel)]), doc_key),
+                  by = "doc_key"
+                  ) %>%
+  mutate(
+    period = case_when(
+      date >= as_date("2018-12-01") ~ "Huawei",
+      date >= as_date("2018-03-01") ~ "Cambridge Analytica",
+      date >= as_date("2015-10-01") ~ "Digital Silk Road",
+      date >= as_date("2013-06-01") ~ "Snowden",
+      date >= as_date("2012-12-01") ~ "WCIT",
+      date >= as_date("2010-07-01") ~ "Stuxnet",
+      date >= as_date("2005-11-01") ~ "WSIS 2005",
+      date >= as_date("2003-12-01") ~ "WSIS 2003",
+      TRUE ~ "before"
+    ) %>% as.factor()
+  )
 
-# paras <- read_rds("./large_data/ParagraphLevelData.rds")
-# paras <- left_join(paras,
-#                    read_rds("./data/ParaLevelData_zs.rds") %>% 
-#                      select(-any_of(names(paras)[names(paras) %in% names(read_rds("data/ParaLevelData_zs.rds"))]), id),
-#                    by = "id"
-#                    )
+paras <- read_rds("./large_data/ParagraphLevelData.rds")
+paras <- left_join(paras,
+                   read_rds("./data/ParaLevelData_zs.rds") %>%
+                     select(-any_of(names(paras)[names(paras) %in% names(read_rds("data/ParaLevelData_zs.rds"))]), id),
+                   by = "id"
+                   )
 
 
 # When does a document matter for digitality?
 # Taking initial choices here as the NLI classification is not likely to be finished in time and 
 # as the sem_simil classification on the para level creates false positives 
 
-docs$digitalshare <- docs$digitalpara/docs$npara
-hist(docs$digitalshare) # sem_simil
+docs$digitalshare_sim <- docs$digitalpara/docs$npara
+hist(docs$digitalshare_sim) # sem_simil
 # hist(docs$share_digital_para) # max_subtopic
 
-sum(docs$digitalshare >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
+sum(docs$digitalshare_sim >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
 
-docs$digital <- docs$digitalshare >= .2 # sem_simil
-# docs$digital <- docs$share_digital_para >= .2 # zs
+docs$digitalsimil <- docs$digitalshare_sim >= .2 # sem_simil
+docs$digital_zs <- docs$share_digital_para >= .2 # zs
+docs$digital <- docs$digitalsimil
 
 # digital docs only: ####
 dp_docs <-
   docs %>%
-  filter(digital) # for sem_simil
-# filter(digital) # for zs
+  filter(digital)
+
+# export for qualitative inspection:
+docs %>% 
+  filter(cm_CN_wider > 0 & US > 0) %>% 
+  mutate(link = paste0("https://ec.europa.eu/commission/presscorner/", doc_key),
+         digitalshare_zs = share_digital_para,
+         co_mentions = cm_CN_wider + US,
+         relevance = co_mentions*digitalshare_zs*digitalshare_sim) %>% 
+  select(link, title, date, relevance, co_mentions, digital_zs, digitalsimil, digitalshare_sim, digitalshare_zs, US, CN, cm_CN_wider) %>% 
+  arrange(-(relevance)) %>% 
+  xlsx::write.xlsx(., "../../../../schroeder/Nextcloud/Shared/TRIAS Brückenprojekt/co_mentions_superpowers_digitality.xlsx")
 
 gc()
 
