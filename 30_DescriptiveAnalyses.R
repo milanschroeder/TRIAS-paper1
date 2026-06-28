@@ -15,35 +15,47 @@ library(ggtext)
 
 paras <- 
   # Start from text data, only this one holds the numeric paragraph id
-  read_rds("./data/all_texts.rds") %>% 
-  select(doc_key, id, text_para) %>% 
+   # read_rds("./data/all_texts.rds") %>% 
+  # select(doc_key, id, text_para) %>% 
+  
+# start from paralevel data from  31_match_geopolitics_digital.R 
+  read_rds("./data/ParaLevelData_zs.rds") %>% 
   mutate(wordcount = str_count(text_para, "\\W+")+1) %>% 
-  # Add meta data, document-level
-  left_join(., 
-            read_rds("./data/all_meta.rds") %>% 
-              select(doc_key, date, doc_type, lang, title_long),
-            by = "doc_key") %>% 
+  
+# Add meta data, document-level
+  # left_join(., 
+  #           read_rds("./data/all_meta.rds") %>% 
+  #             select(doc_key, date, doc_type, lang, title_long),
+  #           by = "doc_key") %>% 
   # Add semantic similarities, paragraph level (only identified by id)
   left_join(read_rds("./large_data/SemanticSimilarityCodes_ParagraphLevel.rds"),
             by = "id") %>% 
   # Mark paragraphs that speak about digital affairs
   # For now using the semantic similarity to the advanced digital affairs dictionary
   # at a cut-off that maximizes F1
+  
   # ADAPT THIS LINE TO THE FINALLY CHOSEN MEASURE
-  mutate(digital = digital_simil_advanced >= .18) %>% 
+  mutate(
+    #digital = digital_simil_advanced >= .18
+    digital = zs_max >= .7
+    ) %>% 
+  
   mutate_at(vars(digital), ~replace_na(., 0)) %>% # Missing bc out-of-dictionary paras
   select(-starts_with("digital_")) %>% 
-  # Add country mentions
-  left_join(read_rds("./large_data/CountryMentions_NM-dict_ParagraphLevel.rds") %>% 
-              select(-doc_key),
-            by = "id") %>% 
+
+    # Add country mentions
+  # left_join(read_rds("./large_data/CountryMentions_NM-dict_ParagraphLevel.rds") %>% 
+  #             select(-doc_key),
+  #           by = "id") %>% 
   # Filter by document types to be used in the paper
-  filter(doc_type %in% c("Speech", "Press release", "Statement")) %>% 
+  
+  filter(doc_type %in% c("Speech", "Press release", "Statement", "Read-out")) %>% 
   # Filter non-english texts
   filter(lang == "en") %>% 
   select(-lang) %>% 
   # Column order
-  relocate(id, doc_pos, doc_key, doc_type, title_long, text_para, date, wordcount, digital, contains("_simil"))
+  relocate(id, doc_pos, doc_key, doc_type, text_para, date, wordcount, digital, contains("_simil"), conf_coop) %>% 
+  distinct(id, .keep_all = T)
   
 gc() # Free memory 
 
@@ -111,12 +123,14 @@ docs <-
   group_by(doc_key) %>% 
   # Different aggregations across variables
   summarise(doc_type = unique(doc_type), # Static vars (is there a smarter coding approach?)
-            title = unique(title_long),
+           # title = unique(title_long),
             date = unique(date),
             npara = n(), # Count of paragraphs in doc
             digitalpara = sum(digital), # Count of digital paragraphs
             across(economy_simil:conf_coop, mean, na.rm = T), # Semantic similarities averaged across paras (NA removal slows things down drastically)
-            across(BI:WS, sum)) %>% # Count of country mentions per doc
+            across(cm_EU:BR, sum) # Count of country mentions per doc
+#           across(BI:WS, sum) # Count of country mentions per doc
+           ) %>% 
   ungroup() %>% 
   mutate(
     period = case_when(
@@ -138,12 +152,13 @@ docs <-
  write_rds(paras, "./large_data/ParagraphLevelData.rds", compress = "gz")
 
 
-# join ZS Classifications and aggregations from 31_match_geopolitics.R:
+# join ZS Classifications and aggregations from 31_match_geopolitics.R: ####
 
+ 
  docs <- read_rds("./large_data/DocumentLevelData.rds")
  docs <- left_join(docs,
                   read_rds("./data/DocLevelData_zs.rds") %>%
-                    select(-any_of(names(docs)[names(docs) %in% names(analysis_data_doclevel)]), doc_key),
+                    select(-any_of(names(docs)[names(docs) %in% names(read_rds("./data/DocLevelData_zs.rds"))]), doc_key),
                   by = "doc_key"
                   ) %>%
   mutate(
@@ -175,12 +190,13 @@ paras <- left_join(paras,
 docs$digitalshare_sim <- docs$digitalpara/docs$npara
 hist(docs$digitalshare_sim) # sem_simil
 # hist(docs$share_digital_para) # max_subtopic
+docs$digitalshare <- docs$share_digital_para
 
 sum(docs$digitalshare_sim >= .2) # At least 1/5 of paras has to be relevant for digitality to count the doc in, 7719
 
 docs$digitalsimil <- docs$digitalshare_sim >= .2 # sem_simil
 docs$digital_zs <- docs$share_digital_para >= .2 # zs
-docs$digital <- docs$digitalsimil
+docs$digital <- docs$digital_zs
 
 # digital docs only: ####
 dp_docs <-
@@ -188,6 +204,7 @@ dp_docs <-
   filter(digital)
 
 # export for qualitative inspection:
+### GP?
 docs %>% 
   filter(cm_CN_wider > 0 & US > 0) %>% 
   mutate(link = paste0("https://ec.europa.eu/commission/presscorner/", doc_key),
@@ -198,13 +215,65 @@ docs %>%
   arrange(-(relevance)) %>% 
   xlsx::write.xlsx(., "../../../../schroeder/Nextcloud/Shared/TRIAS Brückenprojekt/co_mentions_superpowers_digitality.xlsx")
 
+
+### Event Mentions:
+event_mentions <- 
+  paras %>% 
+  filter(str_detect(text_para, "(?i)WSIS|World Summit on the Information Society|Stuxnet|WCIT|World Conference on International Telecommunications|Snowden|Digital Silk Road|Cambridge Analytica|Huawei"
+                    )) %>% 
+  mutate(
+         link = paste0("https://ec.europa.eu/commission/presscorner/", doc_key),
+         #digitalshare_zs = share_digital_para,
+         co_mentions = cm_CN_wider + US#,
+         #relevance = co_mentions*digitalshare_zs*digitalshare_sim
+         ) %>% 
+  select(text_para, link, co_mentions, date, title_long) %>% 
+  arrange(date) %>% 
+  group_by(link, date, title_long) %>% 
+  summarise(text_para = paste(text_para, collapse = "\n[...]\n"), 
+            co_mentions = sum(co_mentions, na.rm = T)) %>% 
+  ungroup()
+
+xlsx::write.xlsx(event_mentions, "../../../../schroeder/Nextcloud/Shared/TRIAS Brückenprojekt/event_mentions.xlsx")
+
+### plot event mentions:
+event_mentions %>% 
+  mutate(
+    year = year(date),
+    
+    WSIS = str_detect(text_para, "(?i)WSIS|World Summit on the Information Society"),
+    Stuxnet = str_detect(text_para, "(?i)Stuxnet"),
+    WCIT = str_detect(text_para, "(?i)WCIT|World Conference on International Telecommunications"),
+    Snowden = str_detect(text_para, "(?i)Snowden"),
+    DSR = str_detect(text_para, "(?i)Digital Silk Road"),
+    CambridgeAnalytica = str_detect(text_para, "(?i)Cambridge Analytica"),
+    Huawei = str_detect(text_para, "(?i)Huawei")
+  ) %>% 
+  distinct(link, .keep_all = T) %>% 
+  pivot_longer(cols = WSIS:Huawei, names_to = "event", values_to = "mentioned") %>% 
+  filter(mentioned) %>% 
+  group_by(year, event) %>% 
+  summarise(count = n()) %>% 
+  ggplot(aes(x = year, y = count, colour = event)) +
+  geom_line()+
+  geom_point() +
+  coord_cartesian(ylim = c(0,30)) +
+  theme_minimal() +
+  labs(title = "Salience of selected geopolitical events in public communication of the European Commission",
+       subtitle = paste0("Yearly count of Commission press releases, speeches, and statements that explicitly mention a geopolitical event"),
+       x = "",
+       y= "Count")
+  
+ 
+ggsave("./output/plots/salience_events.png", width = 26, height = 15, units = "cm")
+
 gc()
 
 
 # qualitative examples: ####
 docs %>%
-  arrange(desc(digitalshare)) %>% 
-  select(npara, digitalshare, title) %>% 
+  arrange(desc(share_digital_para)) %>% 
+  select(npara, share_digital_para, title) %>% 
   head(15) # Strong bias to the single paragraph documents in the early period ... grr
 
 docs %>% 
@@ -223,8 +292,8 @@ docs %>%
     # year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()
   ) %>% 
   filter(year >= 1997) %>% 
-  arrange(desc(digitalshare)) %>% 
-  select(npara, digitalshare, title) %>% 
+  arrange(desc(share_digital_para)) %>% 
+  select(npara, share_digital_para, title) %>% 
   head(15) # Looks very reasonable, stick with this one for now
 
 
@@ -328,7 +397,7 @@ pl.dp_salience_events <-
 
 pl.dp_salience_events
 
-ggsave("./output/plots/dp_salience_events_DocLevel.png", width = 26, height = 15, units = "cm")
+ggsave("./output/plots/zs_data/dp_salience_events_DocLevel.png", width = 26, height = 15, units = "cm")
 
 
 
@@ -396,7 +465,7 @@ pl.dp_salience_events <-
 
 pl.dp_salience_events
 
-ggsave("./output/plots/dp_salience_events_ParaLevel.png", width = 26, height = 15, units = "cm")
+ggsave("./output/plots/zs_data/dp_salience_events_ParaLevel.png", width = 26, height = 15, units = "cm")
 
 
 
@@ -525,7 +594,7 @@ pl.map_digital <-
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 14))
 pl.map_digital
-ggsave("./output/plots/CountryMentions/WorldMapDigital.png", width = 26, height = 15, units = "cm")
+ggsave("./output/plots/CountryMentions/WorldMapDigital_zs.png", width = 26, height = 15, units = "cm")
 
 
 
@@ -711,7 +780,7 @@ ggplot() +
   #          label = rep("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
   #          angle = 270, size = 2.3, hjust = 0)
 
-  ggsave("./output/plots/CountryMentions/US&CN-prevalence_OverTime-digital.png", width = 24, height = 20, units = "cm")
+  ggsave("./output/plots/zs_data/US&CN-prevalence_OverTime-digital.png", width = 24, height = 20, units = "cm")
   
 
 # Trends over time for selected countries ####
@@ -749,13 +818,17 @@ df <- docs %>%
 # combined mentions of both US & CN:
   ggplot() +
     geom_line(data = docs %>% 
-                mutate(year = year(date)) %>% 
+                mutate(year = year(date),
+                       superpowers_mentioned = US > 0 & CN > 0) %>%
+                filter(!digital & year < 2024) %>%
                 group_by(year) %>% 
                 summarize(share = mean(superpowers_mentioned)),
               mapping = aes(x = year, y = share), colour = "#0380b5"
     ) +
-    geom_line(data = dp_docs %>% 
-                mutate(year = year(date)) %>% 
+    geom_line(data = dp_docs %>%  
+                mutate(year = year(date),
+                       superpowers_mentioned = US > 0 & CN > 0) %>% 
+                filter(year < 2024) %>%
                 group_by(year) %>% 
                 summarize(share = mean(superpowers_mentioned)),
               mapping = aes(x = year, y = share), colour = "#619933"
@@ -830,7 +903,7 @@ ggsave("./output/plots/CountryMentions/US&BRICS-prevalence_OverTime.png", pl.pow
 df2 <- docs %>% 
 
    # filter(digitalpara > 1) %>% # ! ' USING SEM_SIMIL
-  filter(digitalsimil) %>% # using sem_simil
+  filter(digital) %>% # using sem_simil
   
   select(date, US, CN, BR, RU, IN, ZA) %>% 
   mutate(year = as.character(date) %>% str_extract("^[0-9]{4}") %>% as.numeric()) %>% # Not using data prior to 1997 !
@@ -1000,7 +1073,7 @@ pl.balance <-
   annotate("text", 
            x = c("2003-11", "2005-10", "2010-06", "2012-11", 
                  "2013-05", "2015-09", "2018-02", "2018-11"),
-           y = 3,
+           y = 4,
            label = c("WSIS 2003", "WSIS 2005", "Stuxnet", "WCIT", "Snowden", "Digital Silk Road", "Cambridge Analytica", "Huawei"),
            angle = 270, size = 2.3, hjust = 0
   )+
@@ -1015,7 +1088,7 @@ pl.balance <-
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 14))
 
-ggsave("./output/plots/CountryMentions/Foreign-EU-Balance.png", pl.balance, width = 28, height = 16, units = "cm")
+ggsave("./output/plots/zs_data/Foreign-EU-Balance.png", pl.balance, width = 28, height = 16, units = "cm")
 
 
 
@@ -1047,6 +1120,7 @@ pl.concerns <-
   ggplot(df, aes(x = month, y= sem_simil, color = type, group = type, size = type))+
   geom_smooth(method = "loess", span = .1, se = F)+
   scale_x_discrete(breaks = breaks, labels = labels)+
+ # scale_y_continuous(labels = scales::percent) +
   scale_color_manual(values = c("#0380b5", "#619933"))+
   scale_linetype_manual(values = c("solid", "dotted"), guide = 'none')+
   scale_size_manual(values = c(1, .5), guide = "none")+
@@ -1068,6 +1142,7 @@ pl.concerns <-
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 14))
 
+pl.concerns
 ggsave("./output/plots/RelativeEmphasis_Concerns.png", pl.concerns, width = 28, height = 24, units = "cm")
 
   
@@ -1160,10 +1235,8 @@ pl.concerns <-
         strip.text = element_text(face = "bold"),
         plot.background = element_rect(fill = "white", color = NA),
         plot.title = element_text(face = "bold", size = 14))
-
-ggsave("./output/plots/RelativeEmphasis_Concerns.png", pl.concerns, width = 30, height = 26, units = "cm")
-
-
+pl.concerns
+ggsave("./output/plots/zs_data/RelativeEmphasis_Concerns.png", pl.concerns, width = 30, height = 26, units = "cm")
 
 
 
@@ -1171,6 +1244,13 @@ ggsave("./output/plots/RelativeEmphasis_Concerns.png", pl.concerns, width = 30, 
 
 
 
+# THIRD WAY FRAMING ####
+
+third_way <- analysis_data %>% filter(., str_detect(text_para, "[Tt]hird [Ww]ay")) %>% 
+  arrange(date) %>%
+  mutate(link = paste0("https://ec.europa.eu/commission/presscorner/", doc_key)) %>% 
+  select(date, text_para, link) %>% 
+  xlsx::write.xlsx(., "../../../Nextcloud/Shared/TRIAS Brückenprojekt/third_way_paragraphs.xlsx")
 
 
 

@@ -2,7 +2,9 @@
 # Authors:: @milanschroeder; @ChRauh
 
 # Input: MariaDBconnection con (from 00_connectDB.R)
-# Output: tibbleall_meta, all_meta.rds, tibble all_texts
+# Output: tibble all_meta, all_meta.rds, tibble all_texts
+
+source("../00_connectDB.R")
 
 # data reading function ####
 combine_tables <- function(prefix = c("comread", "comspeech", "compress", "comstate",    # main interest
@@ -35,8 +37,25 @@ combine_tables <- function(prefix = c("comread", "comspeech", "compress", "comst
 # read all metadata ####
 all_meta <- combine_tables()
 
+# if not yet exists:
+try(
+dplyr::copy_to(dest = con,
+                df = all_meta %>% 
+                  mutate(doc_id = row_number()-1,
+                         doc_key = str_sub(all_meta$doc_key, start = 11),
+                         title_long = str_remove(title_long, "[\\[\\(]check against delivery[\\]\\)]")
+                         ) %>% 
+                  select(doc_id, doc_key, everything(), main_lang_doc = lang, -date_time_cet),
+                name = "all_meta", 
+                temporary = F, 
+                unique_indexes = list("doc_key", "doc_id"), 
+                overwrite = F,
+                types = c("text_full" = "LONGTEXT")
+)
+)
+
 # Store local copy
-write_rds(all_meta %>% select(-c(date_time_cet, text_full)), "./data/all_meta.rds")
+# write_rds(all_meta %>% select(-c(date_time_cet, text_full)), "./data/all_meta.rds")
 
 
 
@@ -67,7 +86,7 @@ all_texts <- bind_rows(
 )
 
 # clean up: ####
-DBI::dbDisconnect(con) # Disconnect DB after data is read
+#DBI::dbDisconnect(con) # Disconnect DB after data is read
 rm(all_paras, all_titles, all_lists, all_quotes, all_subheaders, combine_tables, con) # clear memory
 gc()
 

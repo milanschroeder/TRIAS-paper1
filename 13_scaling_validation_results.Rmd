@@ -1,0 +1,512 @@
+---
+title-block-banner: true
+title: "Manual Coding Results"
+author:
+  - name: "Milan Schröder"
+    affiliations:
+      - name: TRIAS/WZB
+date-modified: now
+format:
+  html:
+    self_contained: true
+    keep_md: yes
+    toc: true
+    css: style.css
+    code-fold: true
+    code-summary: "Show the code"
+editor: visual
+---
+
+## Check Results of manual coding
+
+```{r prep, echo=F}
+library(tidyverse)
+library(magrittr)
+options(scipen = 999, warn = 0)
+
+# load mc output ####
+mc <- read.csv("data/output_manual_coding.csv") %>% 
+  mutate(coding_date = as_datetime(coding_date)) %>% 
+  group_by(coder_ID) %>% 
+  # already sorted by coding_date 
+  mutate(time_diff_sec = as.numeric(difftime(coding_date, lag(coding_date), units = "sec")),
+         session = 1L + cumsum(ifelse(is.na(time_diff_sec), 0, time_diff_sec) > 15*60), # new session if pause > 15 min
+         overlap = doc_ID %in% .$doc_ID[duplicated(.$doc_ID)] # part of overlap? 
+  ) %>% ungroup()
+```
+
+
+```{r calc, echo=F}
+# why does R not hae a mode function?!? ####
+Mode <- function(v) {
+   uniqv <- unique(v)
+   uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+# combine without aggregating first:
+codings <- mc %>% 
+  left_join(., 
+            # add meta and text:
+            precoded %>% 
+              select(text_para, group, digital_zeroshot, sem_simil, para_type, doc_type, wordcount, date, zs_sim_quant_diff, doc_ID), 
+            by=join_by(doc_ID)) %>% 
+  # add precodings:
+  bind_rows(., 
+            precoded %>% filter(!is.na(Digitality)) 
+            ) 
+
+# aggregate results by paragraph:
+sample_results <- codings %>% 
+  group_by(doc_ID, overlap) %>% 
+  summarise(mean = mean(Digitality),
+            mode = Mode(Digitality),
+            max = max(Digitality),
+            disputability = sum(Digitality != mode),
+            avg_time = mean(time_diff_sec, na.rm = T)) %>% 
+#  select(-mean) %>% 
+  full_join(., 
+            # add meta and text:
+            precoded %>% 
+              select(text_para, group, digital_zeroshot, sem_simil, para_type, doc_type, wordcount, date, zs_sim_quant_diff, doc_ID), 
+            by=join_by(doc_ID)) %>%
+  relocate(overlap, .after = last_col()) %>% 
+  relocate(doc_ID, .after = last_col()) %>%
+  relocate(group, .before = text_para) %>% 
+  arrange(-disputability) %>% 
+  ungroup()
+
+# write_rds(sample_results, "../data/sampleResults.rds")
+```
+
+
+### plot time per item
+are coders getting quicker over sessions? hats the range of time per item?
+
+```{r}
+mc %>% ggplot(aes(x = session, y = time_diff_sec, col = factor(Digitality))) +
+  geom_jitter() + 
+  coord_cartesian(ylim = c(0, 600)) +
+  facet_grid(rows = vars(coder_ID)) +
+  scale_x_continuous(breaks = seq(from = 1, to = max(mc$session, na.rm = T), by = 1L))
+```
+
+average time per para: 
+```{r}
+mc %>% 
+  filter(time_diff_sec < 15*60) %>% 
+  group_by(coder_ID) %>% 
+
+# in hours total:  
+  # summarise(time_hours = sum(time_diff_sec)/60/60) %>%
+  # ungroup() %>% 
+  # mutate(overall_mean_time = mean(time_hours)) %>% 
+  # ggplot() + 
+  # geom_bar(aes(x = time_hours, y = factor(coder_ID)), stat = "identity") +
+  # geom_vline(aes(xintercept = overall_mean_time), colour = "red")
+
+# in seconds per para: 
+  summarise(mean_time_sec = mean(time_diff_sec)) %>%
+  ungroup() %>% 
+  mutate(overall_mean_time = mean(mean_time_sec)) %>% 
+  ggplot() + 
+  geom_bar(aes(x = mean_time_sec, y = factor(coder_ID)), stat = "identity") +
+  geom_vline(aes(xintercept = overall_mean_time), colour = "red")
+```
+
+
+### differences between coders?
+
+```{r}
+# notice: all of overlap is coded first!
+mc %>% 
+  #group_by(overlap) %>% 
+  mutate(mean_code = sum(Digitality)/5,
+         Digitality = factor(Digitality)) %>% 
+ #  summarise(mean = mean(Digitality), variance = var(Digitality), n = n(), Digitality = "") %>% 
+ #  ggplot(aes(x = Digitality, y = mean)) +
+ #  geom_point() +
+ #  geom_errorbar(aes(ymin=mean-sqrt(variance)*1.96, ymax=mean+sqrt(variance)*1.96), width=.1) +
+  ggplot() +
+  geom_bar(aes(x = Digitality, group = Digitality, fill = Digitality)) +
+  #geom_jitter(aes(y=Digitality, x = ""), width = .25, height = .25, ) +
+  geom_hline(aes(yintercept = mean_code)) +
+    facet_grid(rows = vars(overlap), cols = vars(coder_first_name))
+```
+
+average assessment per coder: 
+
+```{r}
+mc %>% 
+  mutate(overall_avg = mean(Digitality)) %>% 
+  group_by(coder_ID, overlap, overall_avg) %>% 
+  summarise(mean_Digitality = mean(Digitality)) %>% 
+  ggplot() + 
+  geom_col(aes(x = mean_Digitality, y = factor(coder_ID), fill = overlap), position = "dodge", stat = "identity") +
+  geom_vline(aes(xintercept = overall_avg), colour = "red")
+
+```
+
+```{r}
+mc %>% 
+  left_join(., sample_results, by= join_by(doc_ID, overlap)) %>% 
+  mutate(coder = ifelse(overlap==T, "overlap", coder_first_name),
+         digital_binary = digital_zeroshot > .5,
+         sim_binary = sem_simil > .2) %>% 
+  select(doc_ID, coder, digital_zeroshot, sem_simil) %>% 
+  pivot_longer(cols = 3:4, names_to = "score", values_to = "value") %>%
+  ggplot() +
+  geom_col(aes(y=score, x=value, fill=coder), position = "dodge")
+```
+
+
+```{r}
+# only to check progress
+
+# mc %>% 
+#   left_join(., sample_results, by= join_by(doc_ID, overlap)) %>% 
+#   mutate(coder = ifelse(overlap==T, "overlap", coder_first_name)) %>% 
+#   select(doc_ID, coder, digital_zeroshot, sem_simil) %>% 
+#   mutate(N=sum(!is.na(digital_zeroshot))) %>% 
+#   ggplot() +
+#   geom_col(aes(y=N, x=coder))
+  
+```
+
+
+comparable overlap? -> weird!
+```{r}
+mc %>% group_by(overlap) %>% summarise(avg=mean(Digitality))
+```
+
+
+### disputable items?
+
+Where do coders diverge?
+
+```{r}
+#xlsx::write.xlsx(sample_results %>% select(mean, avg_time, text_para) %>% filter(between(mean, 0.1, 0.9)) %>% mutate(avg_time = round(avg_time, 1)), file = "C:/Users/schroeder/Nextcloud/Shared/TRIAS Brückenprojekt/is_this_digital.xlsx")
+DT::datatable(sample_results, options = list(scrolly = TRUE), extensions = list("Scroller"))
+```
+
+
+### Is there a "natural" threshold of classifications?
+
+```{r}
+sample_results %>% 
+   filter(!is.na(mode)) %>% 
+#  mutate(disputability = ifelse(is.na(disputability), .5, disputability)) %>% # if not wanting to remove cases
+  ggplot(aes(x=factor(mode), y=sem_simil, col = -disputability)) +
+  geom_jitter(width = .2, height = .2)
+```
+```{r}
+sample_results %>% 
+   filter(!is.na(mode)) %>% 
+#  mutate(disputability = ifelse(is.na(disputability), .5, disputability)) %>% # if not wanting to remove cases
+  ggplot(aes(x=factor(mode), y=digital_zeroshot, col = -disputability)) +
+  geom_jitter(width = .2, height = .2)
+```
+
+Is there actually an relationship between classifiers?
+
+```{r}
+sample_results %>% 
+  select(digital_zeroshot, sem_simil, mode) %>% 
+  GGally::ggpairs()
+```
+
+mode==1 at least doesn't cover full range of sem_simil...
+
+```{r}
+sample_results %>% 
+  group_by(mode) %>%
+  select(sem_simil) %>% 
+  summarise(min(sem_simil), max(sem_simil), n(), mean(sem_simil)) %>% knitr::kable() %>% kableExtra::kable_styling()
+```
+...and there obs with sem_simil < 1 very likely not digital in our opinions!
+
+```{r}
+codings %>% 
+  ggplot(aes(x=sem_simil, y=Digitality)) +
+  geom_jitter(alpha=.5, width = 0, height = .2) +
+  geom_smooth()
+```
+... p(Digitality==1) increases strongly above sem_simil>.2, but never reaches .5! -> THIS IS NOT A GOOD CLASSIFICATION PERFORMANCE!!!
+
+BUT: Semantic Similarity very reliably tells us what is *not* digital!
+
+```{r}
+codings %>% 
+  ggplot(aes(x=digital_zeroshot, y=Digitality)) +
+  geom_jitter(alpha=.5, width = 0, height = .2) +
+  geom_smooth()
+```
+No clear cutoff, rather a continuous (almost linear!) increase.
+OK(ish) above .5, at least reaches 50% positive classifications above .75...
+
+... Probably could be refined to perform satisfactory.
+
+... Maybe we can combine both approaches?
+    -> semantic similarity to filter out negatives
+    -> zeroshot to identify scale?
+    
+    
+*Idea*: Multiply both to cobine clearer cutoff of sem_simil and scaling potential of zeroshot
+
+```{r}
+codings %>% 
+  ggplot(aes(x=sem_simil * digital_zeroshot, y=Digitality)) +
+  geom_jitter(alpha=.5, width = 0, height = .2) +
+  geom_smooth()
+```    
+Somewhat better? At least very clear above .1, already 25% at .05
+
+
+```{r}
+dta <- sample_results
+dta %<>% mutate(target = ifelse(max==1, T, F)) %>% # sufficient if anyone identified digitality
+  filter(!is.na(target))
+
+cutoff_candidates_simil <- tibble()
+
+for (cutoff in seq(0,1,.01)) {
+  
+  dta %<>% mutate(pred = sem_simil > cutoff) %>%  # change variable here
+    filter(!is.na(pred))
+  
+  TP <- sum(dta$pred & dta$target)
+  TN <- sum(!dta$pred & !dta$target)
+  FP <- sum(dta$pred & !dta$target)
+  FN <- sum(!dta$pred & dta$target)
+  
+  precision <- TP / (TP + FP)
+  recall <- TP / (TP + FN)
+  
+  cutoff_candidates_simil %<>% bind_rows(., tibble_row(cutoff, precision, recall, TP, FP, TN, FN))
+}
+
+cutoff_candidates_simil %>% 
+  mutate(F1 = 2*precision*recall / (precision + recall)) %>% 
+  pivot_longer(precision:recall, names_to = "measure", values_to = "value") %>% 
+  ggplot(aes(x = cutoff, y = value, colour = measure, alpha = F1)) + 
+  geom_line() +
+  geom_point()
+```
+```{r}
+cutoff_candidates_simil %>% 
+  mutate(positives = TP + FP / TP+FP+TN+FN,
+         F1 = 2*precision*recall / (precision + recall)) %>% 
+  pivot_longer(TP:FN, names_to = "measure", values_to = "count") %>% 
+  mutate(target = ifelse(measure %in% c("FP", "TN"), "not digital", "digital")) %>% 
+  ggplot(aes(x = cutoff, y = count, colour = measure, alpha = F1)) + 
+  geom_line() +
+  geom_point() +
+  facet_grid(rows = vars(target), scales = "free_y") +
+  scale_x_continuous(breaks = seq(0, 1, .05)) +
+  coord_cartesian(xlim = c(0, .4))
+```
+
+
+
+```{r}
+dta <- sample_results
+dta %<>% mutate(target = ifelse(max==1, T, F)) %>% # sufficient if anyone identified digitality
+  filter(!is.na(target))
+
+cutoff_candidates_zs <- tibble()
+
+for (cutoff in seq(0,1,.01)) {
+  
+  dta %<>% mutate(pred = digital_zeroshot > cutoff) %>%  # change variable here
+    filter(!is.na(pred))
+    
+  TP <- sum(dta$pred & dta$target)
+  TN <- sum(!dta$pred & !dta$target)
+  FP <- sum(dta$pred & !dta$target)
+  FN <- sum(!dta$pred & dta$target)
+  
+  precision <- TP / (TP + FP)
+  recall <- TP / (TP + FN)
+  
+  cutoff_candidates_zs %<>% bind_rows(., tibble_row(cutoff, precision, recall, TP, FP, TN, FN))
+}
+
+cutoff_candidates_zs %>% 
+  pivot_longer(precision:recall, names_to = "measure", values_to = "value") %>% 
+  ggplot(aes(x = cutoff, y = value, colour = measure, alpha = TP)) + 
+  geom_line() +
+  geom_point()
+```
+
+```{r}
+cutoff_candidates_zs %>% 
+  pivot_longer(TP:FN, names_to = "measure", values_to = "count") %>% 
+  ggplot(aes(x = cutoff, y = count, colour = measure)) + 
+  geom_line() +
+  geom_point()
+```
+
+
+#### check on doc_level:
+ positive target if any para positive or dp_tag (== non-extensive EC classification) positive
+
+```{r}
+data <- 
+  readr::read_rds("../data/paras-DPcoded.rds") %>% 
+  bind_cols(., readr::read_rds("../data/all_texts.rds") %>% select(text_para)) %>% 
+  left_join(., read_rds("../data/sampleResults.rds") %>% select(doc_ID, mean, mode, max, disputability, group), by=join_by(id == doc_ID))
+
+data[sapply(data, is.nan)] <- NA
+
+# These we should know for sure:
+
+docs <- data %>% 
+  group_by(doc_key) %>%
+  slice_max(max, with_ties = FALSE) %>%
+  slice_max(sem_simil, with_ties = FALSE) %>%
+  slice_max(digital_zeroshot, with_ties = FALSE) %>%
+  mutate(tag = if_else(date > min(data$date[data$dp_tag]), as.integer(dp_tag), NA_integer_),
+         label = ifelse(max == 1, T, NA)) %>%
+  ungroup() %>% 
+  select(doc_key, max_doc=max, max_sim=sem_simil, max_zs=digital_zeroshot, tag, label)
+
+# docs <- data %>% 
+#   group_by(doc_key) %>% 
+#   summarise(max_doc = max(max, na.rm = T),
+#             max_sim = max(sem_simil, na.rm = T),
+#             max_zs = max(digital_zeroshot, na.rm = T),
+#             tag = ifelse(date > (data %>% filter(dp_tag) %>% summarise(min(date)) %>% pull())[1], max(as.integer(dp_tag)), NA) # ignore when tags are not yet applied (i.e. pre 2014)
+#             ) 
+# safe_digital[sapply(safe_digital, is.infinite)] <- NA
+```
+
+```{r}
+ordered_docs <- 
+    docs %>% group_by(doc_key) %>% mutate(score = sum(max_sim, max_zs, na.rm = T) / sum(!is.na(max_sim), !is.na(max_zs)),
+                                          label = sum(max_doc, tag, na.rm = T)) %>% ungroup() %>% 
+    arrange(-label, -score)
+    
+# write_rds(ordered_docs, "../data/ordered_docs.rds")    
+```
+
+
+```{r}
+dta <- docs %>% mutate(target = case_when(tag == 1 | label == 1 ~ T, 
+                                          tag == 0 |is.na(label) ~ F,
+                                          T ~ NA)) %>% # sufficient if anyone identified digitality
+  filter(!is.na(target))
+
+cutoff_candidates_doc_simil <- tibble()
+
+for (cutoff in seq(0,1,.01)) {
+  
+  dta %<>% mutate(pred = max_sim > cutoff) %>%  # change variable here
+    filter(!is.na(pred))
+    
+  TP <- sum(dta$pred & dta$target)
+  TN <- sum(!dta$pred & !dta$target)
+  FP <- sum(dta$pred & !dta$target)
+  FN <- sum(!dta$pred & dta$target)
+  
+  precision <- TP / (TP + FP)
+  recall <- TP / (TP + FN)
+  
+  cutoff_candidates_doc_simil %<>% bind_rows(., tibble_row(cutoff, precision, recall, TP, FP, TN, FN))
+}
+
+cutoff_candidates_doc_simil %>% 
+  pivot_longer(precision:recall, names_to = "measure", values_to = "value") %>% 
+  ggplot(aes(x = cutoff, y = value, colour = measure, alpha = TP)) + 
+  geom_line() +
+  geom_point()
+```
+
+```{r}
+cutoff_candidates_doc_simil %>% 
+  pivot_longer(TP:FN, names_to = "measure", values_to = "count") %>% 
+  ggplot(aes(x = cutoff, y = count, colour = measure)) + 
+  geom_line() +
+  geom_point()
+```
+
+
+```{r}
+dta <- docs %>% mutate(target = case_when(tag == 1 | label == 1 ~ T, 
+                                          tag == 0 |is.na(label) ~ F,
+                                          T ~ NA)) %>% # sufficient if anyone identified digitality
+  filter(!is.na(target))
+
+
+cutoff_candidates_doc_zs <- tibble()
+
+for (cutoff in seq(0,1,.01)) {
+  
+  dta %<>% mutate(pred = max_zs > cutoff) %>%  # change variable here
+    filter(!is.na(pred))
+    
+  TP <- sum(dta$pred & dta$target)
+  TN <- sum(!dta$pred & !dta$target)
+  FP <- sum(dta$pred & !dta$target)
+  FN <- sum(!dta$pred & dta$target)
+  
+  precision <- TP / (TP + FP)
+  recall <- TP / (TP + FN)
+  
+  cutoff_candidates_doc_zs %<>% bind_rows(., tibble_row(cutoff, precision, recall, TP, FP, TN, FN))
+}
+
+cutoff_candidates_doc_zs %>% 
+  pivot_longer(precision:recall, names_to = "measure", values_to = "value") %>% 
+  ggplot(aes(x = cutoff, y = value, colour = measure, alpha = TP)) + 
+  geom_line() +
+  geom_point()
+```
+
+
+```{r}
+cutoff_candidates_doc_zs %>% 
+  pivot_longer(TP:FN, names_to = "measure", values_to = "count") %>% 
+  ggplot(aes(x = cutoff, y = count, colour = measure)) + 
+  geom_line() +
+  geom_point()
+```
+
+------------    
+
+```{r}
+sample_results %>% 
+   filter(!is.na(mode)) %>% 
+#  mutate(disputability = ifelse(is.na(disputability), .5, disputability)) %>% # if not wanting to remove cases
+  ggplot(aes(x=sem_simil, y=sem_simil, col=factor(-mode), alpha=factor(-disputability) #, size = overlap
+             )) +
+  geom_jitter(width = .1, height = .1)
+```
+
+```{r}
+sample_results %>% 
+   filter(!is.na(mode)) %>% 
+#  mutate(disputability = ifelse(is.na(disputability), .5, disputability)) %>% # if not wanting to remove cases
+  ggplot(aes(x=digital_zeroshot, y=digital_zeroshot, col=factor(-mode), alpha=factor(-disputability)# , size = overlap
+             )) +
+  geom_jitter(width = .1, height = .1)
+```
+
+### confusion matrix (for binary classifiers)
+
+```{r}
+binary_class <- sample_results %>% 
+  mutate(zs_bin = digital_zeroshot > .5,
+         simil_bin = sem_simil > .25) 
+
+
+mosaicplot(table(binary_class %>% select(zs_bin, simil_bin)))
+```
+
+
+```{r}
+mosaicplot(table(binary_class %>% select(zs_bin, mode)))
+```
+
+
+```{r}
+mosaicplot(table(binary_class %>% select(simil_bin, mode)))
+```

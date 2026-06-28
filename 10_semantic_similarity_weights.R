@@ -448,7 +448,8 @@ sc <- coop_simils %>%
   arrange(desc(conf_coop))
 
 # Export token weights
-write_rds(sc %>% select(token, conf_coop), "./large_data/SemSimilWeights-ConflictCooperation.rds", compress = "gz")
+write_rds(sc ,#%>% select(token, conf_coop), 
+          "./large_data/SemSimilWeights-ConflictCooperation.rds", compress = "gz")
 
 
 # Visualize (ind scales)
@@ -504,7 +505,7 @@ df.learned <- sc %>%
   mutate(group = "Example terms scaled by the algorithm")
 
 df.highlight <- rbind(df.anchors, df.learned)
-df$highlight$group <- fct_rev(factor(df.highlight$group, levels = c("Anchor terms defined by researcher", "Example terms scaled by the algorithm")))
+df.highlight$group <- fct_rev(factor(df.highlight$group, levels = c("Anchor terms defined by researcher", "Example terms scaled by the algorithm")))
 
 df <- df %>% filter(!(token %in% df.highlight$token)) # Avoid duplicates
 
